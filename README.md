@@ -1,5 +1,7 @@
 # goflow2-kube-enricher
 
+Note: this is currently a prototype, not suitable for a production usage. Some improvements must be done such as adding a cache (kube informers) and supporting protobuf i/o.
+
 ## Build image
 
 (This image will contain both goflow2 and the plugin)
