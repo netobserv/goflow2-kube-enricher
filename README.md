@@ -18,6 +18,8 @@ podman push quay.io/jotak/goflow:v2-kube
 
 ## Run in kube
 
+Simply `pipe` goflow2 output to `kube-enricher`.
+
 Example of usage in kube (assuming built image `quay.io/jotak/goflow:v2-kube`)
 
 ```yaml
