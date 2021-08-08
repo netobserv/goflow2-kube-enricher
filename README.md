@@ -33,6 +33,14 @@ podman push quay.io/jotak/goflow:v2-kube
 
 To run it, simply `pipe` goflow2 output to `kube-enricher`.
 
+## RBAC
+
+If RBAC is enabled, `kube-enricher` needs two cluster-wide permissions:
+- LIST on Pods
+- GET on ReplicaSets
+
+Check [goflow-kube.yaml](./examples/goflow-kube.yaml) for an example.
+
 ## Examples in Kube
 
 Assuming built image `quay.io/jotak/goflow:v2-kube`.
@@ -50,7 +58,7 @@ Since both goflow + enricher are contained inside a single image, you can declar
 # ...
 ```
 
-Check the `examples` directory.
+Check the [examples](./examples) directory.
 
 Example of output:
 
