@@ -2,6 +2,21 @@
 
 Note: this is currently a prototype, not suitable for a production usage. Some improvements must be done such as adding a cache (kube informers) and supporting protobuf i/o.
 
+## Description
+
+This enricher adds kubernetes data to the output of `goflow2` based, by default, on the source and destination addresses of each record.
+
+The fields mapping can be overriden for more general purpose using the `-mapping` option. The default is `SrcAddr=Src,DstAddr=Dst`. Keys refer to the fields to look for in goflow2 output and values refer to the prefix to use in created fields. For instance, it could be possible to process the `NextHop` field the same way with `-mapping "SrcAddr=Src,DstAddr=Dst,NextHop=Nxt"`
+
+Generated fields are (with `[Prefix]` being by default `Src` or `Dst`):
+
+- `[Prefix]Pod`: pod name
+- `[Prefix]Namespace`: pod namespace
+- `[Prefix]HostIP`: pod's host IP
+- `[Prefix]Workload`: pod's workload, ie. controller/owner
+- `[Prefix]WorkloadKind`: workload kind (deployment, daemon set, etc.)
+- `[Prefix]Warn`: any warning message that could have been triggered while processing kube info
+
 ## Build image
 
 (This image will contain both goflow2 and the plugin)
@@ -16,58 +31,58 @@ podman build --build-arg VERSION=`git describe --long HEAD` -t quay.io/jotak/gof
 podman push quay.io/jotak/goflow:v2-kube
 ```
 
-## Run in kube
+To run it, simply `pipe` goflow2 output to `kube-enricher`.
 
-Simply `pipe` goflow2 output to `kube-enricher`.
+## Examples in Kube
 
-Example of usage in kube (assuming built image `quay.io/jotak/goflow:v2-kube`)
+Assuming built image `quay.io/jotak/goflow:v2-kube`.
+
+Since both goflow + enricher are contained inside a single image, you can declare the following command inside the pod container:
 
 ```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  labels:
-    app: goflow
-  name: goflow
-  namespace: default
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: goflow
-  template:
-    metadata:
-      labels:
-        app: goflow
-    spec:
+# ...
       containers:
       - command:
         - /bin/sh
         - -c
-        - /goflow2 -loglevel "debug" | /kube-enricher
+        - /goflow2 -loglevel "trace" | /kube-enricher -loglevel "trace"
         image: quay.io/jotak/goflow:v2-kube
-        imagePullPolicy: IfNotPresent
-        name: goflow
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: goflow
-  namespace: default
-  labels:
-    app: goflow
-spec:
-  ports:
-  - port: 2055
-    protocol: UDP
-  selector:
-    app: goflow
+# ...
 ```
+
+Check the `examples` directory.
 
 Example of output:
 
 ```
-{"BiFlowDirection":0,"Bytes":345600,"DstAS":0,"DstAddr":"10.244.0.3","DstHostIP":"10.89.0.3","DstMac":"0a:58:0a:f4:00:03","DstNamespace":"local-path-storage","DstNet":0,"DstPod":"local-path-provisioner-78776bfc44-g2k4h","DstPort":48066,"DstVlan":0,"EgressVrfID":0,"Etype":2048,"EtypeName":"IPv4","ForwardingStatus":0,"FragmentId":0,"FragmentOffset":0,"IPTTL":0,"IPTos":0,"IPv6FlowLabel":0,"IcmpCode":0,"IcmpName":"","IcmpType":0,"InIf":7,"IngressVrfID":0,"NextHop":"","NextHopAS":0,"OutIf":0,"Packets":400,"Proto":6,"ProtoName":"TCP","SamplerAddress":"10.244.0.2","SamplingRate":0,"SequenceNum":1212,"SrcAS":0,"SrcAddr":"10.89.0.2","SrcHostIP":"10.89.0.2","SrcMac":"0e:25:5c:f5:a0:8b","SrcNamespace":"kube-system","SrcNet":0,"SrcPod":"etcd-ovn-control-plane","SrcPort":6443,"SrcVlan":0,"TCPFlags":0,"TimeFlowEnd":0,"TimeFlowStart":0,"TimeReceived":1628250609,"Type":"IPFIX","VlanId":0}
+{"BiFlowDirection":0,"Bytes":20800,"DstAS":0,"DstAddr":"10.96.0.1","DstMac":"0a:58:0a:f4:00:01","DstNet":0,"DstPort":443,"DstVlan":0,"EgressVrfID":0,"Etype":2048,"EtypeName":"IPv4","ForwardingStatus":0,"FragmentId":0,"FragmentOffset":0,"IPTTL":0,"IPTos":0,"IPv6FlowLabel":0,"IcmpCode":0,"IcmpName":"","IcmpType":0,"InIf":12,"IngressVrfID":0,"NextHop":"","NextHopAS":0,"OutIf":0,"Packets":400,"Proto":6,"ProtoName":"TCP","SamplerAddress":"10.244.0.2","SamplingRate":0,"SequenceNum":577,"SrcAS":0,"SrcAddr":"10.244.0.5","SrcHostIP":"10.89.0.2","SrcMac":"0a:58:0a:f4:00:05","SrcNamespace":"local-path-storage","SrcNet":0,"SrcPod":"local-path-provisioner-78776bfc44-p2xkl","SrcPort":56144,"SrcVlan":0,"SrcWorkload":"local-path-provisioner","SrcWorkloadKind":"Deployment","TCPFlags":0,"TimeFlowEnd":0,"TimeFlowStart":0,"TimeReceived":1628419398,"Type":"IPFIX","VlanId":0}
+
+
 ```
 
-Notice `"SrcPod":"etcd-ovn-control-plane"`, `"SrcNamespace":"kube-system"`, etc.
+Notice `"SrcPod":"local-path-provisioner-78776bfc44-p2xkl"`, `"SrcWorkload":"local-path-provisioner"`, `"SrcNamespace":"local-path-storage"`, etc.
+
+### Run on Kind with ovn-kubernetes
+
+First, [refer to this documentation](https://github.com/ovn-org/ovn-kubernetes/blob/master/docs/kind.md) to setup ovn-k on Kind.
+Then:
+
+```bash
+kubectl apply -f ./examples/goflow-kube.yaml
+GF_IP=`kubectl get svc goflow -ojsonpath='{.spec.clusterIP}'` && echo $GF_IP
+kubectl set env daemonset/ovnkube-node -c ovnkube-node -n ovn-kubernetes OVN_IPFIX_TARGETS="$GF_IP:2055"
+```
+
+Finally check goflow's logs for output
+
+### Run on OpenShift with OVNKubernetes network provider
+
+- Pre-requisite: make sure you have a running OpenShift cluster (4.8 at least) with `OVNKubernetes` set as the network provider.
+
+In OpenShift, a difference with the upstream `ovn-kubernetes` is that the flows export config is managed by the `ClusterNetworkOperator`.
+
+```bash
+oc apply -f ./examples/goflow-kube.yaml
+GF_IP=`oc get svc goflow -ojsonpath='{.spec.clusterIP}'` && echo $GF_IP
+oc patch networks.operator.openshift.io cluster --type='json' -p "$(sed -e "s/GF_IP/$GF_IP/" examples/net-cluster-patch.json)"
+```

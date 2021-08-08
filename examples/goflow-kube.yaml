@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: goflow
+  name: goflow
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: goflow
+  template:
+    metadata:
+      labels:
+        app: goflow
+    spec:
+      containers:
+      - command:
+        - /bin/sh
+        - -c
+        - /goflow2 -loglevel "trace" | /kube-enricher -loglevel "trace"
+        image: quay.io/jotak/goflow:v2-kube
+        imagePullPolicy: IfNotPresent
+        name: goflow
+      serviceAccountName: goflow
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: goflow
+  namespace: default
+  labels:
+    app: goflow
+spec:
+  ports:
+  - port: 2055
+    protocol: UDP
+  selector:
+    app: goflow
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: goflow
+  name: goflow
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: goflow
+  name: goflow
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: goflow
+subjects:
+- kind: ServiceAccount
+  name: goflow
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app: goflow
+  name: goflow
+rules:
+- apiGroups:
+  - ""
+  - "apps"
+  resources:
+  - pods
+  - replicasets
+  verbs:
+  - list
+  - get
