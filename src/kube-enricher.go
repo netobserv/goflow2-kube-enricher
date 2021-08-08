@@ -9,19 +9,20 @@ import (
 	"os"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
 
 var (
-	version       = ""
-	buildinfos    = ""
-	AppVersion    = "kube-enricher " + version + " " + buildinfos
-	FieldsMapping = flag.String("mapping", "SrcAddr=Src,DstAddr=Dst", "Mapping of fields containing IPs to prefixes for new fields")
-	LogLevel      = flag.String("loglevel", "info", "Log level")
-	Version       = flag.Bool("v", false, "Print version")
+	version       = "unknown"
+	app           = "kube-enricher"
+	fieldsMapping = flag.String("mapping", "SrcAddr=Src,DstAddr=Dst", "Mapping of fields containing IPs to prefixes for new fields")
+	logLevel      = flag.String("loglevel", "info", "Log level")
+	versionFlag   = flag.Bool("v", false, "Print version")
+	log           = logrus.WithField("module", app)
+	appVersion    = fmt.Sprintf("%s %s", app, version)
 )
 
 func init() {
@@ -30,14 +31,20 @@ func init() {
 func main() {
 	flag.Parse()
 
-	if *Version {
-		fmt.Println(AppVersion)
+	if *versionFlag {
+		fmt.Println(appVersion)
 		os.Exit(0)
 	}
 
-	lvl, _ := log.ParseLevel(*LogLevel)
-	log.SetLevel(lvl)
-	mapping, err := parseFieldMapping(*FieldsMapping)
+	lvl, err := logrus.ParseLevel(*logLevel)
+	if err != nil {
+		log.Errorf("Log level %s not recognized, using info", *logLevel)
+		*logLevel = "info"
+		lvl = logrus.InfoLevel
+	}
+	logrus.SetLevel(lvl)
+
+	mapping, err := parseFieldMapping(*fieldsMapping)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -51,7 +58,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Info("Starting kube-enricher")
+	log.Infof("Starting %s at log level %s", appVersion, *logLevel)
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
@@ -101,28 +108,72 @@ func enrich(clientset *kubernetes.Clientset, rawRecord []byte, mapping []fieldMa
 
 	// TODO: use cache
 	for _, fieldMap := range mapping {
+		addWarnings := []string{}
+
 		if val, ok := record[fieldMap.fieldName]; ok {
 			if ip, ok := val.(string); ok {
 				pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{FieldSelector: "status.podIP=" + ip})
 				if err != nil {
-					log.Warnf("Could not find pod with IP %s: %v", ip, err)
-				}
-				if len(pods.Items) > 0 {
+					log.Warnf("Failed to get pod [ip=%s,err=%v]", ip, err)
+				} else if len(pods.Items) > 0 {
+					if len(pods.Items) > 1 {
+						names := []string{}
+						for _, pod := range pods.Items {
+							names = append(names, pod.Name+"."+pod.Namespace)
+						}
+						addWarnings = append(addWarnings, "Several pods found with same IP: "+strings.Join(names, ","))
+						log.Tracef("%d pods found for IP %s, using first", len(pods.Items), ip)
+					}
 					pod := pods.Items[0]
 					record[fieldMap.prefixOut+"Pod"] = pod.Name
 					record[fieldMap.prefixOut+"Namespace"] = pod.Namespace
 					record[fieldMap.prefixOut+"HostIP"] = pod.Status.HostIP
-					if len(pods.Items) > 1 {
-						log.Infof("%d pods found for IP %s, using first", len(pods.Items), ip)
+					if len(pod.OwnerReferences) > 0 {
+						if len(pod.OwnerReferences) > 1 {
+							names := []string{}
+							for _, ref := range pod.OwnerReferences {
+								names = append(names, ref.Kind+"/"+ref.Name)
+							}
+							addWarnings = append(addWarnings, "Several owners for pod: "+strings.Join(names, ","))
+							log.Tracef("%d owners found for pod %s, using first", len(pod.OwnerReferences), pod.Name)
+						}
+						ref := pod.OwnerReferences[0]
+						if ref.Kind == "ReplicaSet" {
+							// Search deeper (e.g. Deployment, DeploymentConfig)
+							rs, err := clientset.AppsV1().ReplicaSets(pod.Namespace).Get(context.TODO(), ref.Name, metav1.GetOptions{})
+							if err != nil {
+								log.Warnf("Failed to get replicaset [ns=%s,name=%s,err=%v]", pod.Namespace, ref.Name, err)
+							} else if len(rs.OwnerReferences) > 0 {
+								if len(rs.OwnerReferences) > 1 {
+									names := []string{}
+									for _, rsRef := range rs.OwnerReferences {
+										names = append(names, rsRef.Kind+"/"+rsRef.Name)
+									}
+									addWarnings = append(addWarnings, "Several owners for replica: "+strings.Join(names, ","))
+									log.Tracef("%d owners found for replica %s, using first", len(rs.OwnerReferences), rs.Name)
+								}
+								ref = rs.OwnerReferences[0]
+							}
+						}
+						record[fieldMap.prefixOut+"Workload"] = ref.Name
+						record[fieldMap.prefixOut+"WorkloadKind"] = ref.Kind
+					} else {
+						// Consider a pod without owner as self-owned
+						record[fieldMap.prefixOut+"Workload"] = pod.Name
+						record[fieldMap.prefixOut+"WorkloadKind"] = "Pod"
 					}
 				} else {
-					log.Infof("No pods found for IP %s", ip)
+					log.Tracef("No pods found for IP %s", ip)
 				}
 			} else {
 				log.Warnf("String expected for field %s value %v", fieldMap.fieldName, val)
 			}
 		} else {
-			log.Warnf("Field %s not found in record", fieldMap.fieldName)
+			log.Infof("Field %s not found in record", fieldMap.fieldName)
+		}
+
+		if len(addWarnings) > 0 {
+			record[fieldMap.prefixOut+"Warn"] = strings.Join(addWarnings, "; ")
 		}
 	}
 

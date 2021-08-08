@@ -7,12 +7,12 @@ Note: this is currently a prototype, not suitable for a production usage. Some i
 (This image will contain both goflow2 and the plugin)
 
 ```bash
-docker build -t quay.io/jotak/goflow:v2-kube .
+docker build --build-arg VERSION=`git describe --long HEAD` -t quay.io/jotak/goflow:v2-kube .
 docker push quay.io/jotak/goflow:v2-kube
 
 # or
 
-podman build -t quay.io/jotak/goflow:v2-kube .
+podman build --build-arg VERSION=`git describe --long HEAD` -t quay.io/jotak/goflow:v2-kube .
 podman push quay.io/jotak/goflow:v2-kube
 ```
 
