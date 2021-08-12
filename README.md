@@ -43,7 +43,7 @@ Check [goflow-kube.yaml](./examples/goflow-kube.yaml) for an example.
 
 ## Examples in Kube
 
-Assuming built image `quay.io/jotak/goflow:v2-kube`.
+Assuming built image is `quay.io/jotak/goflow:v2-kube`.
 
 Since both goflow + enricher are contained inside a single image, you can declare the following command inside the pod container:
 

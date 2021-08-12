@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -98,6 +99,19 @@ func parseFieldMapping(in string) ([]fieldMapping, error) {
 	return mapping, nil
 }
 
+var podNameFunc = func(pods interface{}, idx int) string {
+	pod := pods.([]v1.Pod)[idx]
+	return pod.Name + "." + pod.Namespace
+}
+var ownerNameFunc = func(owners interface{}, idx int) string {
+	owner := owners.([]metav1.OwnerReference)[idx]
+	return owner.Kind + "/" + owner.Name
+}
+var svcNameFunc = func(services interface{}, idx int) string {
+	svc := services.([]v1.Service)[idx]
+	return svc.Name + "." + svc.Namespace
+}
+
 func enrich(clientset *kubernetes.Clientset, rawRecord []byte, mapping []fieldMapping) ([]byte, error) {
 	// TODO: allow protobuf input
 	var record map[string]interface{}
@@ -116,27 +130,13 @@ func enrich(clientset *kubernetes.Clientset, rawRecord []byte, mapping []fieldMa
 				if err != nil {
 					log.Warnf("Failed to get pod [ip=%s,err=%v]", ip, err)
 				} else if len(pods.Items) > 0 {
-					if len(pods.Items) > 1 {
-						names := []string{}
-						for _, pod := range pods.Items {
-							names = append(names, pod.Name+"."+pod.Namespace)
-						}
-						addWarnings = append(addWarnings, "Several pods found with same IP: "+strings.Join(names, ","))
-						log.Tracef("%d pods found for IP %s, using first", len(pods.Items), ip)
-					}
+					addWarnings = checkTooMany(addWarnings, "pods", "same IP", pods.Items, len(pods.Items), podNameFunc)
 					pod := pods.Items[0]
 					record[fieldMap.prefixOut+"Pod"] = pod.Name
 					record[fieldMap.prefixOut+"Namespace"] = pod.Namespace
 					record[fieldMap.prefixOut+"HostIP"] = pod.Status.HostIP
 					if len(pod.OwnerReferences) > 0 {
-						if len(pod.OwnerReferences) > 1 {
-							names := []string{}
-							for _, ref := range pod.OwnerReferences {
-								names = append(names, ref.Kind+"/"+ref.Name)
-							}
-							addWarnings = append(addWarnings, "Several owners for pod: "+strings.Join(names, ","))
-							log.Tracef("%d owners found for pod %s, using first", len(pod.OwnerReferences), pod.Name)
-						}
+						addWarnings = checkTooMany(addWarnings, "owners", "pod "+pod.Name, pod.OwnerReferences, len(pod.OwnerReferences), ownerNameFunc)
 						ref := pod.OwnerReferences[0]
 						if ref.Kind == "ReplicaSet" {
 							// Search deeper (e.g. Deployment, DeploymentConfig)
@@ -144,14 +144,7 @@ func enrich(clientset *kubernetes.Clientset, rawRecord []byte, mapping []fieldMa
 							if err != nil {
 								log.Warnf("Failed to get replicaset [ns=%s,name=%s,err=%v]", pod.Namespace, ref.Name, err)
 							} else if len(rs.OwnerReferences) > 0 {
-								if len(rs.OwnerReferences) > 1 {
-									names := []string{}
-									for _, rsRef := range rs.OwnerReferences {
-										names = append(names, rsRef.Kind+"/"+rsRef.Name)
-									}
-									addWarnings = append(addWarnings, "Several owners for replica: "+strings.Join(names, ","))
-									log.Tracef("%d owners found for replica %s, using first", len(rs.OwnerReferences), rs.Name)
-								}
+								addWarnings = checkTooMany(addWarnings, "owners", "replica "+rs.Name, rs.OwnerReferences, len(rs.OwnerReferences), ownerNameFunc)
 								ref = rs.OwnerReferences[0]
 							}
 						}
@@ -163,7 +156,19 @@ func enrich(clientset *kubernetes.Clientset, rawRecord []byte, mapping []fieldMa
 						record[fieldMap.prefixOut+"WorkloadKind"] = "Pod"
 					}
 				} else {
-					log.Tracef("No pods found for IP %s", ip)
+					// Try service
+					services, err := findServicesByIP(clientset, ip)
+					if err != nil {
+						log.Warnf("Failed to get services [err=%v]", err)
+					} else if len(services) > 0 {
+						addWarnings = checkTooMany(addWarnings, "services", "same IP", services, len(services), svcNameFunc)
+						svc := services[0]
+						record[fieldMap.prefixOut+"Workload"] = svc.Name
+						record[fieldMap.prefixOut+"WorkloadKind"] = "Service"
+						record[fieldMap.prefixOut+"Namespace"] = svc.Namespace
+					} else {
+						log.Tracef("No pods or services found for IP %s", ip)
+					}
 				}
 			} else {
 				log.Warnf("String expected for field %s value %v", fieldMap.fieldName, val)
@@ -178,4 +183,31 @@ func enrich(clientset *kubernetes.Clientset, rawRecord []byte, mapping []fieldMa
 	}
 
 	return json.Marshal(record)
+}
+
+func checkTooMany(warnings []string, kind, ref string, items interface{}, size int, nameFunc func(interface{}, int) string) []string {
+	if size > 1 {
+		names := []string{}
+		for i := 0; i < size; i++ {
+			names = append(names, nameFunc(items, i))
+		}
+		log.Tracef("%d %s found for %s, using first", size, kind, ref)
+		warn := fmt.Sprintf("Several %s found for %s: %s", kind, ref, strings.Join(names, ","))
+		warnings = append(warnings, warn)
+	}
+	return warnings
+}
+
+func findServicesByIP(clientset *kubernetes.Clientset, ip string) ([]v1.Service, error) {
+	services, err := clientset.CoreV1().Services("").List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return []v1.Service{}, err
+	}
+	filtered := []v1.Service{}
+	for _, svc := range services.Items {
+		if svc.Spec.ClusterIP == ip {
+			filtered = append(filtered, svc)
+		}
+	}
+	return filtered, nil
 }
