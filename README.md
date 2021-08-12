@@ -22,13 +22,13 @@ Generated fields are (with `[Prefix]` being by default `Src` or `Dst`):
 (This image will contain both goflow2 and the plugin)
 
 ```bash
-docker build --build-arg VERSION=`git describe --long HEAD` -t quay.io/jotak/goflow:v2-kube .
-docker push quay.io/jotak/goflow:v2-kube
+docker build --build-arg VERSION=`git describe --long HEAD` -t quay.io/jotak/goflow2:kube-latest .
+docker push quay.io/jotak/goflow2:kube-latest
 
 # or
 
-podman build --build-arg VERSION=`git describe --long HEAD` -t quay.io/jotak/goflow:v2-kube .
-podman push quay.io/jotak/goflow:v2-kube
+podman build --build-arg VERSION=`git describe --long HEAD` -t quay.io/jotak/goflow2:kube-latest .
+podman push quay.io/jotak/goflow2:kube-latest
 ```
 
 To run it, simply `pipe` goflow2 output to `kube-enricher`.
@@ -43,7 +43,7 @@ Check [goflow-kube.yaml](./examples/goflow-kube.yaml) for an example.
 
 ## Examples in Kube
 
-Assuming built image is `quay.io/jotak/goflow:v2-kube`.
+Assuming built image is `quay.io/jotak/goflow2:kube-latest`.
 
 Since both goflow + enricher are contained inside a single image, you can declare the following command inside the pod container:
 
@@ -54,7 +54,7 @@ Since both goflow + enricher are contained inside a single image, you can declar
         - /bin/sh
         - -c
         - /goflow2 -loglevel "trace" | /kube-enricher -loglevel "trace"
-        image: quay.io/jotak/goflow:v2-kube
+        image: quay.io/jotak/goflow2:kube-latest
 # ...
 ```
 
