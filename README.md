@@ -35,8 +35,8 @@ To run it, simply `pipe` goflow2 output to `kube-enricher`.
 
 ## RBAC
 
-If RBAC is enabled, `kube-enricher` needs two cluster-wide permissions:
-- LIST on Pods
+If RBAC is enabled, `kube-enricher` needs a few cluster-wide permissions:
+- LIST on Pods and Services
 - GET on ReplicaSets
 
 Check [goflow-kube.yaml](./examples/goflow-kube.yaml) for an example.
