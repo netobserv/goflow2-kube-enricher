@@ -1,0 +1,157 @@
+package meta
+
+import (
+	"fmt"
+	"io"
+	"strings"
+	"time"
+
+	appsv1 "k8s.io/api/apps/v1"
+
+	corev1 "k8s.io/api/core/v1"
+
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/tools/cache"
+
+	"github.com/sirupsen/logrus"
+	"k8s.io/client-go/kubernetes"
+)
+
+const (
+	// NamespaceSeparator used by the K8s informers library to create indices
+	// that are composed as namespace/name
+	NamespaceSeparator = "/"
+	IndexIP            = "IP"
+)
+
+var slog = logrus.WithFields(logrus.Fields{
+	"component": fmt.Sprintf("%T", Informers{}),
+})
+
+type Informers struct {
+	informerFactory informers.SharedInformerFactory
+	pods            cache.SharedIndexInformer
+	services        cache.SharedIndexInformer
+	replicaSet      cache.SharedIndexInformer
+}
+
+func NewInformers(client kubernetes.Interface) Informers {
+	// TODO: configure resync time
+	factory := informers.NewSharedInformerFactory(client, 1*time.Hour)
+	pods := factory.Core().V1().Pods().Informer()
+	if err := pods.AddIndexers(map[string]cache.IndexFunc{
+		IndexIP: func(obj interface{}) ([]string, error) {
+			return []string{obj.(*corev1.Pod).Status.PodIP}, nil
+		},
+	}); err != nil {
+		// this should never happen, as it only returns error if the informer has
+		// been alrady started
+		panic(err)
+	}
+	services := factory.Core().V1().Services().Informer()
+	if err := services.AddIndexers(map[string]cache.IndexFunc{
+		IndexIP: func(obj interface{}) ([]string, error) {
+			spec := obj.(*corev1.Service).Spec
+			if spec.ClusterIP == corev1.ClusterIPNone {
+				return []string{}, nil
+			}
+			return spec.ClusterIPs, nil
+		},
+	}); err != nil {
+		panic(err)
+	}
+	return Informers{
+		informerFactory: factory,
+		pods:            pods,
+		services:        services,
+		replicaSet:      factory.Apps().V1().ReplicaSets().Informer(),
+	}
+}
+
+func (s *Informers) Start(closeCh <-chan struct{}) error {
+	s.informerFactory.Start(closeCh)
+	return nil
+}
+
+func (s *Informers) WaitForCacheSync(closeCh <-chan struct{}) {
+	s.informerFactory.WaitForCacheSync(closeCh)
+}
+
+func (s *Informers) PodByIP(ip string) (*corev1.Pod, bool) {
+	item, err := s.pods.GetIndexer().ByIndex(IndexIP, ip)
+	if err != nil {
+		// should never happen as long as we provide the correct index function
+		// otherwise it's a bug in our code
+		panic(err)
+	}
+	// our provided indexers only return a key, so it's safe to assume 0<=len()<=1
+	if len(item) == 0 {
+		// not found
+		return nil, false
+	}
+	return item[0].(*corev1.Pod), true
+}
+
+func (s *Informers) ServiceByIP(ip string) (*corev1.Service, bool) {
+	item, err := s.services.GetIndexer().ByIndex(IndexIP, ip)
+	if err != nil {
+		// should never happen as long as we provide the correct index function
+		// otherwise it's a bug in our code
+		panic(err)
+	}
+	if len(item) == 0 {
+		// not found
+		return nil, false
+	}
+	// we assume a single ClusterIP per service
+	return item[0].(*corev1.Service), true
+}
+
+func (s *Informers) ReplicaSet(namespace, name string) (*appsv1.ReplicaSet, bool) {
+	item, ok, err := s.replicaSet.GetIndexer().GetByKey(namespace + NamespaceSeparator + name)
+	if err != nil {
+		// should never happen. Otherwise it's a bug in our code
+		panic(err)
+	}
+	if !ok {
+		return nil, false
+	}
+	return item.(*appsv1.ReplicaSet), true
+}
+
+func (s *Informers) DebugInfo(out io.Writer) {
+	fmt.Fprintln(out, "==== Services")
+	for _, svc := range s.services.GetStore().ListKeys() {
+		fmt.Fprintln(out, "-", svc)
+	}
+	fmt.Fprintln(out, "==== ReplicaSets")
+	for _, rs := range s.replicaSet.GetStore().ListKeys() {
+		rskeys := strings.Split(rs, NamespaceSeparator)
+		rset, _ := s.ReplicaSet(rskeys[0], rskeys[1])
+		fmt.Fprintln(out, "-", rs, "replicas:", rset.Status.Replicas)
+	}
+	fmt.Fprintln(out, "==== Pods")
+	for _, pod := range s.pods.GetStore().ListKeys() {
+		fmt.Fprintln(out, "-", pod)
+	}
+	fmt.Fprintln(out, "=== Pods by IP")
+	for _, ip := range s.pods.GetIndexer().ListIndexFuncValues(IndexIP) {
+		pod, _ := s.PodByIP(ip)
+		if pod.Status.PodIP != ip {
+			panic("ips not equal")
+		}
+		fmt.Fprintln(out, "-", ip, ":", pod.Name)
+	}
+	fmt.Fprintln(out, "=== Services by IP")
+	for _, ip := range s.services.GetIndexer().ListIndexFuncValues(IndexIP) {
+		svc, ok := s.ServiceByIP(ip)
+		if ok {
+			if svc.Spec.ClusterIP != ip {
+				panic("ips not equal")
+			}
+			fmt.Fprintln(out, "-", ip, ":", svc.Name)
+		} else {
+			fmt.Fprintln(out, "-", ip, "not found in index")
+		}
+	}
+}
