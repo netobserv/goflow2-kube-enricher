@@ -23,7 +23,7 @@ var (
 	version       = "unknown"
 	app           = "kube-enricher"
 	fieldsMapping = flag.String("mapping", "SrcAddr=Src,DstAddr=Dst", "Mapping of fields containing IPs to prefixes for new fields")
-	kubeconfig    = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+	kubeConfig    = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	logLevel      = flag.String("loglevel", "info", "Log level")
 	versionFlag   = flag.Bool("v", false, "Print version")
 	log           = logrus.WithField("module", app)
@@ -61,6 +61,17 @@ func main() {
 	informers := meta.NewInformers(clientset)
 	log.Infof("Starting %s at log level %s", appVersion, *logLevel)
 
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	if err := informers.Start(stopCh); err != nil {
+		log.WithError(err).Fatal("can't start informers")
+	}
+	log.Info("waiting for informers to be synchronized")
+	informers.WaitForCacheSync(stopCh)
+	if logrus.IsLevelEnabled(logrus.DebugLevel) {
+		informers.DebugInfo(log.Writer())
+	}
+
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		in := scanner.Bytes()
@@ -79,22 +90,22 @@ func main() {
 }
 
 // loadConfig fetches a given kubernetes configuration in the following order
-// 1. path provided by the -kubeconfig CLI argument
+// 1. path provided by the -kubeConfig CLI argument
 // 2. path provided by the KUBECONFIG environment variable
 // 3. REST InClusterConfig
 func loadConfig() *rest.Config {
 	var config *rest.Config
 	var err error
-	if kubeconfig != nil && *kubeconfig != "" {
-		config, err = clientcmd.BuildConfigFromFlags("", *kubeconfig)
+	if kubeConfig != nil && *kubeConfig != "" {
+		config, err = clientcmd.BuildConfigFromFlags("", *kubeConfig)
 		if err != nil {
-			log.WithError(err).WithField("kubeconfig", *kubeconfig).
-				Fatal("can't find provided kubeconfig param path")
+			log.WithError(err).WithField("kubeConfig", *kubeConfig).
+				Fatal("can't find provided kubeConfig param path")
 		}
 	} else if kfgPath := os.Getenv("KUBECONFIG"); kfgPath != "" {
 		config, err = clientcmd.BuildConfigFromFlags("", kfgPath)
 		if err != nil {
-			log.WithError(err).WithField("kubeconfig", kfgPath).
+			log.WithError(err).WithField("kubeConfig", kfgPath).
 				Fatal("can't find provided KUBECONFIG env path")
 		}
 	} else {

@@ -41,7 +41,15 @@ func NewInformers(client kubernetes.Interface) Informers {
 	pods := factory.Core().V1().Pods().Informer()
 	if err := pods.AddIndexers(map[string]cache.IndexFunc{
 		IndexIP: func(obj interface{}) ([]string, error) {
-			return []string{obj.(*corev1.Pod).Status.PodIP}, nil
+			pod := obj.(*corev1.Pod)
+			ips := make([]string, 0, len(pod.Status.PodIPs))
+			for _, ip := range pod.Status.PodIPs {
+				// ignoring host-networked Pod IPs
+				if ip.IP != pod.Status.HostIP {
+					ips = append(ips, ip.IP)
+				}
+			}
+			return ips, nil
 		},
 	}); err != nil {
 		// this should never happen, as it only returns error if the informer has
@@ -68,13 +76,13 @@ func NewInformers(client kubernetes.Interface) Informers {
 	}
 }
 
-func (s *Informers) Start(closeCh <-chan struct{}) error {
-	s.informerFactory.Start(closeCh)
+func (s *Informers) Start(stopCh <-chan struct{}) error {
+	s.informerFactory.Start(stopCh)
 	return nil
 }
 
-func (s *Informers) WaitForCacheSync(closeCh <-chan struct{}) {
-	s.informerFactory.WaitForCacheSync(closeCh)
+func (s *Informers) WaitForCacheSync(stopCh <-chan struct{}) {
+	s.informerFactory.WaitForCacheSync(stopCh)
 }
 
 func (s *Informers) PodByIP(ip string) (*corev1.Pod, bool) {
@@ -89,6 +97,7 @@ func (s *Informers) PodByIP(ip string) (*corev1.Pod, bool) {
 		// not found
 		return nil, false
 	}
+	// since we are excluding host-networked pods, the relation IP:Pod is 1:1.
 	return item[0].(*corev1.Pod), true
 }
 
@@ -103,7 +112,7 @@ func (s *Informers) ServiceByIP(ip string) (*corev1.Service, bool) {
 		// not found
 		return nil, false
 	}
-	// we assume a single ClusterIP per service
+	// we assume a 1:1 relation between Service and ClusterIP
 	return item[0].(*corev1.Service), true
 }
 
