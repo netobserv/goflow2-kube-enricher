@@ -123,7 +123,7 @@ func (s *Informers) ServiceByIP(ip string) (*corev1.Service, bool) {
 		ilog.WithFields(logrus.Fields{
 			"ip":      ip,
 			"results": len(item),
-		}).Warn("multiple services for a single IP. Returning the first pod and ignoring the rest")
+		}).Warn("multiple services for a single IP. Returning the first service and ignoring the rest")
 	}
 	return item[0].(*corev1.Service), true
 }
