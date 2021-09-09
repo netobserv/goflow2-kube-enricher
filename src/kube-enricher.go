@@ -2,12 +2,15 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
+
+	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/jotak/goflow2-kube-enricher/meta"
 
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
@@ -20,6 +23,7 @@ var (
 	version       = "unknown"
 	app           = "kube-enricher"
 	fieldsMapping = flag.String("mapping", "SrcAddr=Src,DstAddr=Dst", "Mapping of fields containing IPs to prefixes for new fields")
+	kubeConfig    = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	logLevel      = flag.String("loglevel", "info", "Log level")
 	versionFlag   = flag.Bool("v", false, "Print version")
 	log           = logrus.WithField("module", app)
@@ -50,21 +54,28 @@ func main() {
 		log.Fatal(err)
 	}
 
-	config, err := rest.InClusterConfig()
+	clientset, err := kubernetes.NewForConfig(loadConfig())
 	if err != nil {
 		log.Fatal(err)
 	}
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	informers := meta.NewInformers(clientset)
 	log.Infof("Starting %s at log level %s", appVersion, *logLevel)
+
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	if err := informers.Start(stopCh); err != nil {
+		log.WithError(err).Fatal("can't start informers")
+	}
+	log.Info("waiting for informers to be synchronized")
+	informers.WaitForCacheSync(stopCh)
+	if logrus.IsLevelEnabled(logrus.DebugLevel) {
+		informers.DebugInfo(log.Writer())
+	}
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		in := scanner.Bytes()
-		enriched, err := enrich(clientset, in, mapping)
+		enriched, err := enrich(informers, in, mapping)
 		if err != nil {
 			log.Error(err)
 			fmt.Println(string(in))
@@ -78,13 +89,41 @@ func main() {
 	}
 }
 
+// loadConfig fetches a given kubernetes configuration in the following order
+// 1. path provided by the -kubeConfig CLI argument
+// 2. path provided by the KUBECONFIG environment variable
+// 3. REST InClusterConfig
+func loadConfig() *rest.Config {
+	var config *rest.Config
+	var err error
+	if kubeConfig != nil && *kubeConfig != "" {
+		config, err = clientcmd.BuildConfigFromFlags("", *kubeConfig)
+		if err != nil {
+			log.WithError(err).WithField("kubeConfig", *kubeConfig).
+				Fatal("can't find provided kubeConfig param path")
+		}
+	} else if kfgPath := os.Getenv("KUBECONFIG"); kfgPath != "" {
+		config, err = clientcmd.BuildConfigFromFlags("", kfgPath)
+		if err != nil {
+			log.WithError(err).WithField("kubeConfig", kfgPath).
+				Fatal("can't find provided KUBECONFIG env path")
+		}
+	} else {
+		config, err = rest.InClusterConfig()
+		if err != nil {
+			log.WithError(err).Fatal("can't load in-cluster REST config")
+		}
+	}
+	return config
+}
+
 type fieldMapping struct {
 	fieldName string
 	prefixOut string
 }
 
 func parseFieldMapping(in string) ([]fieldMapping, error) {
-	mapping := []fieldMapping{}
+	var mapping []fieldMapping
 	fields := strings.Split(in, ",")
 	for _, pair := range fields {
 		kv := strings.Split(pair, "=")
@@ -99,20 +138,12 @@ func parseFieldMapping(in string) ([]fieldMapping, error) {
 	return mapping, nil
 }
 
-var podNameFunc = func(pods interface{}, idx int) string {
-	pod := pods.([]v1.Pod)[idx]
-	return pod.Name + "." + pod.Namespace
-}
 var ownerNameFunc = func(owners interface{}, idx int) string {
 	owner := owners.([]metav1.OwnerReference)[idx]
 	return owner.Kind + "/" + owner.Name
 }
-var svcNameFunc = func(services interface{}, idx int) string {
-	svc := services.([]v1.Service)[idx]
-	return svc.Name + "." + svc.Namespace
-}
 
-func enrich(clientset *kubernetes.Clientset, rawRecord []byte, mapping []fieldMapping) ([]byte, error) {
+func enrich(informers meta.Informers, rawRecord []byte, mapping []fieldMapping) ([]byte, error) {
 	// TODO: allow protobuf input
 	var record map[string]interface{}
 	err := json.Unmarshal(rawRecord, &record)
@@ -120,74 +151,72 @@ func enrich(clientset *kubernetes.Clientset, rawRecord []byte, mapping []fieldMa
 		return nil, err
 	}
 
-	// TODO: use cache
 	for _, fieldMap := range mapping {
-		addWarnings := []string{}
-
-		if val, ok := record[fieldMap.fieldName]; ok {
-			if ip, ok := val.(string); ok {
-				pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{FieldSelector: "status.podIP=" + ip})
-				if err != nil {
-					log.Warnf("Failed to get pod [ip=%s,err=%v]", ip, err)
-				} else if len(pods.Items) > 0 {
-					addWarnings = checkTooMany(addWarnings, "pods", "same IP", pods.Items, len(pods.Items), podNameFunc)
-					pod := pods.Items[0]
-					record[fieldMap.prefixOut+"Pod"] = pod.Name
-					record[fieldMap.prefixOut+"Namespace"] = pod.Namespace
-					record[fieldMap.prefixOut+"HostIP"] = pod.Status.HostIP
-					if len(pod.OwnerReferences) > 0 {
-						addWarnings = checkTooMany(addWarnings, "owners", "pod "+pod.Name, pod.OwnerReferences, len(pod.OwnerReferences), ownerNameFunc)
-						ref := pod.OwnerReferences[0]
-						if ref.Kind == "ReplicaSet" {
-							// Search deeper (e.g. Deployment, DeploymentConfig)
-							rs, err := clientset.AppsV1().ReplicaSets(pod.Namespace).Get(context.TODO(), ref.Name, metav1.GetOptions{})
-							if err != nil {
-								log.Warnf("Failed to get replicaset [ns=%s,name=%s,err=%v]", pod.Namespace, ref.Name, err)
-							} else if len(rs.OwnerReferences) > 0 {
-								addWarnings = checkTooMany(addWarnings, "owners", "replica "+rs.Name, rs.OwnerReferences, len(rs.OwnerReferences), ownerNameFunc)
-								ref = rs.OwnerReferences[0]
-							}
-						}
-						record[fieldMap.prefixOut+"Workload"] = ref.Name
-						record[fieldMap.prefixOut+"WorkloadKind"] = ref.Kind
-					} else {
-						// Consider a pod without owner as self-owned
-						record[fieldMap.prefixOut+"Workload"] = pod.Name
-						record[fieldMap.prefixOut+"WorkloadKind"] = "Pod"
-					}
-				} else {
-					// Try service
-					services, err := findServicesByIP(clientset, ip)
-					if err != nil {
-						log.Warnf("Failed to get services [err=%v]", err)
-					} else if len(services) > 0 {
-						addWarnings = checkTooMany(addWarnings, "services", "same IP", services, len(services), svcNameFunc)
-						svc := services[0]
-						record[fieldMap.prefixOut+"Workload"] = svc.Name
-						record[fieldMap.prefixOut+"WorkloadKind"] = "Service"
-						record[fieldMap.prefixOut+"Namespace"] = svc.Namespace
-					} else {
-						log.Tracef("No pods or services found for IP %s", ip)
-					}
-				}
-			} else {
-				log.Warnf("String expected for field %s value %v", fieldMap.fieldName, val)
-			}
-		} else {
+		val, ok := record[fieldMap.fieldName]
+		if !ok {
 			log.Infof("Field %s not found in record", fieldMap.fieldName)
+			continue
 		}
-
-		if len(addWarnings) > 0 {
-			record[fieldMap.prefixOut+"Warn"] = strings.Join(addWarnings, "; ")
+		ip, ok := val.(string)
+		if !ok {
+			log.Warnf("String expected for field %s value %v", fieldMap.fieldName, val)
+			continue
+		}
+		if pod, ok := informers.PodByIP(ip); ok {
+			enrichPod(informers, record, fieldMap, pod)
+		} else {
+			// If there is no Pod for such IP, we try searching for a service
+			enrichService(informers, ip, record, fieldMap)
 		}
 	}
 
 	return json.Marshal(record)
 }
 
+func enrichService(informers meta.Informers, ip string, record map[string]interface{}, fieldMap fieldMapping) {
+	svc, ok := informers.ServiceByIP(ip)
+	if !ok {
+		log.Warnf("Failed to get Service [ip=%v]", ip)
+	} else {
+		record[fieldMap.prefixOut+"Workload"] = svc.Name
+		record[fieldMap.prefixOut+"WorkloadKind"] = "Service"
+		record[fieldMap.prefixOut+"Namespace"] = svc.Namespace
+	}
+}
+
+func enrichPod(informers meta.Informers, record map[string]interface{}, fieldMap fieldMapping, pod *v1.Pod) {
+	var warnings []string
+	record[fieldMap.prefixOut+"Pod"] = pod.Name
+	record[fieldMap.prefixOut+"Namespace"] = pod.Namespace
+	record[fieldMap.prefixOut+"HostIP"] = pod.Status.HostIP
+	if len(pod.OwnerReferences) > 0 {
+		warnings = checkTooMany(warnings, "owners", "pod "+pod.Name, pod.OwnerReferences, len(pod.OwnerReferences), ownerNameFunc)
+		ref := pod.OwnerReferences[0]
+		if ref.Kind == "ReplicaSet" {
+			// Search deeper (e.g. Deployment, DeploymentConfig)
+			rs, ok := informers.ReplicaSet(pod.Namespace, ref.Name)
+			if !ok {
+				log.Warnf("Failed to get ReplicaSet [ns=%s,name=%s]", pod.Namespace, ref.Name)
+			} else if len(rs.OwnerReferences) > 0 {
+				warnings = checkTooMany(warnings, "owners", "replica "+rs.Name, rs.OwnerReferences, len(rs.OwnerReferences), ownerNameFunc)
+				ref = rs.OwnerReferences[0]
+			}
+		}
+		record[fieldMap.prefixOut+"Workload"] = ref.Name
+		record[fieldMap.prefixOut+"WorkloadKind"] = ref.Kind
+	} else {
+		// Consider a pod without owner as self-owned
+		record[fieldMap.prefixOut+"Workload"] = pod.Name
+		record[fieldMap.prefixOut+"WorkloadKind"] = "Pod"
+	}
+	if len(warnings) > 0 {
+		record[fieldMap.prefixOut+"Warn"] = strings.Join(warnings, "; ")
+	}
+}
+
 func checkTooMany(warnings []string, kind, ref string, items interface{}, size int, nameFunc func(interface{}, int) string) []string {
 	if size > 1 {
-		names := []string{}
+		var names []string
 		for i := 0; i < size; i++ {
 			names = append(names, nameFunc(items, i))
 		}
@@ -196,18 +225,4 @@ func checkTooMany(warnings []string, kind, ref string, items interface{}, size i
 		warnings = append(warnings, warn)
 	}
 	return warnings
-}
-
-func findServicesByIP(clientset *kubernetes.Clientset, ip string) ([]v1.Service, error) {
-	services, err := clientset.CoreV1().Services("").List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return []v1.Service{}, err
-	}
-	filtered := []v1.Service{}
-	for _, svc := range services.Items {
-		if svc.Spec.ClusterIP == ip {
-			filtered = append(filtered, svc)
-		}
-	}
-	return filtered, nil
 }
