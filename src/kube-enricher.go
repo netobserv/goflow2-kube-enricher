@@ -138,17 +138,9 @@ func parseFieldMapping(in string) ([]fieldMapping, error) {
 	return mapping, nil
 }
 
-var podNameFunc = func(pods interface{}, idx int) string {
-	pod := pods.([]v1.Pod)[idx]
-	return pod.Name + "." + pod.Namespace
-}
 var ownerNameFunc = func(owners interface{}, idx int) string {
 	owner := owners.([]metav1.OwnerReference)[idx]
 	return owner.Kind + "/" + owner.Name
-}
-var svcNameFunc = func(services interface{}, idx int) string {
-	svc := services.([]v1.Service)[idx]
-	return svc.Name + "." + svc.Namespace
 }
 
 func enrich(informers meta.Informers, rawRecord []byte, mapping []fieldMapping) ([]byte, error) {

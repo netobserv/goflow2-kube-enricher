@@ -24,7 +24,7 @@ const (
 	IndexIP            = "IP"
 )
 
-var slog = logrus.WithFields(logrus.Fields{
+var ilog = logrus.WithFields(logrus.Fields{
 	"component": fmt.Sprintf("%T", Informers{}),
 })
 
@@ -97,7 +97,13 @@ func (s *Informers) PodByIP(ip string) (*corev1.Pod, bool) {
 		// not found
 		return nil, false
 	}
-	// since we are excluding host-networked pods, the relation IP:Pod is 1:1.
+	// since we are excluding host-networked pods, the relation IP:Pod should be 1:1.
+	if len(item) > 1 {
+		ilog.WithFields(logrus.Fields{
+			"ip":      ip,
+			"results": len(item),
+		}).Warn("multiple pods for a single IP. Returning the first pod and ignoring the rest")
+	}
 	return item[0].(*corev1.Pod), true
 }
 
@@ -113,6 +119,12 @@ func (s *Informers) ServiceByIP(ip string) (*corev1.Service, bool) {
 		return nil, false
 	}
 	// we assume a 1:1 relation between Service and ClusterIP
+	if len(item) > 1 {
+		ilog.WithFields(logrus.Fields{
+			"ip":      ip,
+			"results": len(item),
+		}).Warn("multiple services for a single IP. Returning the first pod and ignoring the rest")
+	}
 	return item[0].(*corev1.Service), true
 }
 
