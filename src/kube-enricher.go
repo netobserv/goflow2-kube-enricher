@@ -97,18 +97,21 @@ func loadConfig() *rest.Config {
 	var config *rest.Config
 	var err error
 	if kubeConfig != nil && *kubeConfig != "" {
+		log.Info("Using command line supplied kube config")
 		config, err = clientcmd.BuildConfigFromFlags("", *kubeConfig)
 		if err != nil {
 			log.WithError(err).WithField("kubeConfig", *kubeConfig).
 				Fatal("can't find provided kubeConfig param path")
 		}
 	} else if kfgPath := os.Getenv("KUBECONFIG"); kfgPath != "" {
+		log.Info("Using environment KUBECONFIG")
 		config, err = clientcmd.BuildConfigFromFlags("", kfgPath)
 		if err != nil {
 			log.WithError(err).WithField("kubeConfig", kfgPath).
 				Fatal("can't find provided KUBECONFIG env path")
 		}
 	} else {
+		log.Info("Using in-cluster kube config")
 		config, err = rest.InClusterConfig()
 		if err != nil {
 			log.WithError(err).Fatal("can't load in-cluster REST config")
