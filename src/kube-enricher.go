@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -10,6 +9,8 @@ import (
 
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/jotak/goflow2-kube-enricher/format"
+	jsonFormat "github.com/jotak/goflow2-kube-enricher/format/json"
 	"github.com/jotak/goflow2-kube-enricher/meta"
 
 	"github.com/sirupsen/logrus"
@@ -28,6 +29,7 @@ var (
 	versionFlag   = flag.Bool("v", false, "Print version")
 	log           = logrus.WithField("module", app)
 	appVersion    = fmt.Sprintf("%s %s", app, version)
+	sourceFormat  = flag.String("sourceformat", "json", "format of the input string")
 )
 
 func init() {
@@ -72,20 +74,28 @@ func main() {
 		informers.DebugInfo(log.Writer())
 	}
 
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		in := scanner.Bytes()
-		enriched, err := enrich(informers, in, mapping)
+	var format format.Format
+	switch *sourceFormat {
+	case "json":
+		format = jsonFormat.NewScanner(os.Stdin)
+	default:
+		log.Panic("Unknown source format : ", sourceFormat)
+	}
+	for {
+		record, err := format.Next()
 		if err != nil {
 			log.Error(err)
-			fmt.Println(string(in))
+			return
+		}
+		if record == nil {
+			return
+		}
+		enriched, err := enrich(informers, record, mapping)
+		if err != nil {
+			log.Error(err)
 		} else {
 			fmt.Println(string(enriched))
 		}
-	}
-
-	if err = scanner.Err(); err != nil {
-		log.Fatal(err)
 	}
 }
 
@@ -146,14 +156,7 @@ var ownerNameFunc = func(owners interface{}, idx int) string {
 	return owner.Kind + "/" + owner.Name
 }
 
-func enrich(informers meta.Informers, rawRecord []byte, mapping []fieldMapping) ([]byte, error) {
-	// TODO: allow protobuf input
-	var record map[string]interface{}
-	err := json.Unmarshal(rawRecord, &record)
-	if err != nil {
-		return nil, err
-	}
-
+func enrich(informers meta.Informers, record map[string]interface{}, mapping []fieldMapping) ([]byte, error) {
 	for _, fieldMap := range mapping {
 		val, ok := record[fieldMap.fieldName]
 		if !ok {
