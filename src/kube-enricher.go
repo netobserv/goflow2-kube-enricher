@@ -11,6 +11,7 @@ import (
 
 	"github.com/jotak/goflow2-kube-enricher/format"
 	jsonFormat "github.com/jotak/goflow2-kube-enricher/format/json"
+	pbFormat "github.com/jotak/goflow2-kube-enricher/format/pb"
 	"github.com/jotak/goflow2-kube-enricher/meta"
 
 	"github.com/sirupsen/logrus"
@@ -78,6 +79,8 @@ func main() {
 	switch *sourceFormat {
 	case "json":
 		format = jsonFormat.NewScanner(os.Stdin)
+	case "pb":
+		format = pbFormat.NewScanner(os.Stdin)
 	default:
 		log.Panic("Unknown source format : ", sourceFormat)
 	}

@@ -19,7 +19,7 @@ spec:
       - command:
         - /bin/sh
         - -c
-        - /goflow2 -loglevel "trace" | /kube-enricher -loglevel "trace"
+        - /goflow2 -transport.file.sep= -format=pb -format.protobuf.fixedlen=true -loglevel "trace" | /kube-enricher -loglevel "trace" -sourceformat "pb"
         image: quay.io/jotak/goflow2:kube-latest
         imagePullPolicy: IfNotPresent
         name: goflow
