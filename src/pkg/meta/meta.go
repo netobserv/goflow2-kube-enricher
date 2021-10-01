@@ -28,7 +28,14 @@ var ilog = logrus.WithFields(logrus.Fields{
 	"component": fmt.Sprintf("%T", Informers{}),
 })
 
+type InformersInterface interface {
+	PodByIP(ip string) *corev1.Pod
+	ServiceByIP(ip string) *corev1.Service
+	ReplicaSet(namespace, name string) *appsv1.ReplicaSet
+}
+
 type Informers struct {
+	InformersInterface
 	informerFactory informers.SharedInformerFactory
 	pods            cache.SharedIndexInformer
 	services        cache.SharedIndexInformer
@@ -85,7 +92,7 @@ func (s *Informers) WaitForCacheSync(stopCh <-chan struct{}) {
 	s.informerFactory.WaitForCacheSync(stopCh)
 }
 
-func (s *Informers) PodByIP(ip string) (*corev1.Pod, bool) {
+func (s *Informers) PodByIP(ip string) *corev1.Pod {
 	item, err := s.pods.GetIndexer().ByIndex(IndexIP, ip)
 	if err != nil {
 		// should never happen as long as we provide the correct index function
@@ -95,7 +102,7 @@ func (s *Informers) PodByIP(ip string) (*corev1.Pod, bool) {
 	// our provided indexers only return a key, so it's safe to assume 0<=len()<=1
 	if len(item) == 0 {
 		// not found
-		return nil, false
+		return nil
 	}
 	// since we are excluding host-networked pods, the relation IP:Pod should be 1:1.
 	if len(item) > 1 {
@@ -104,10 +111,10 @@ func (s *Informers) PodByIP(ip string) (*corev1.Pod, bool) {
 			"results": len(item),
 		}).Warn("multiple pods for a single IP. Returning the first pod and ignoring the rest")
 	}
-	return item[0].(*corev1.Pod), true
+	return item[0].(*corev1.Pod)
 }
 
-func (s *Informers) ServiceByIP(ip string) (*corev1.Service, bool) {
+func (s *Informers) ServiceByIP(ip string) *corev1.Service {
 	item, err := s.services.GetIndexer().ByIndex(IndexIP, ip)
 	if err != nil {
 		// should never happen as long as we provide the correct index function
@@ -116,7 +123,7 @@ func (s *Informers) ServiceByIP(ip string) (*corev1.Service, bool) {
 	}
 	if len(item) == 0 {
 		// not found
-		return nil, false
+		return nil
 	}
 	// we assume a 1:1 relation between Service and ClusterIP
 	if len(item) > 1 {
@@ -125,19 +132,19 @@ func (s *Informers) ServiceByIP(ip string) (*corev1.Service, bool) {
 			"results": len(item),
 		}).Warn("multiple services for a single IP. Returning the first service and ignoring the rest")
 	}
-	return item[0].(*corev1.Service), true
+	return item[0].(*corev1.Service)
 }
 
-func (s *Informers) ReplicaSet(namespace, name string) (*appsv1.ReplicaSet, bool) {
+func (s *Informers) ReplicaSet(namespace, name string) *appsv1.ReplicaSet {
 	item, ok, err := s.replicaSet.GetIndexer().GetByKey(namespace + NamespaceSeparator + name)
 	if err != nil {
 		// should never happen. Otherwise it's a bug in our code
 		panic(err)
 	}
 	if !ok {
-		return nil, false
+		return nil
 	}
-	return item.(*appsv1.ReplicaSet), true
+	return item.(*appsv1.ReplicaSet)
 }
 
 func (s *Informers) DebugInfo(out io.Writer) {
@@ -148,7 +155,7 @@ func (s *Informers) DebugInfo(out io.Writer) {
 	fmt.Fprintln(out, "==== ReplicaSets")
 	for _, rs := range s.replicaSet.GetStore().ListKeys() {
 		rskeys := strings.Split(rs, NamespaceSeparator)
-		rset, _ := s.ReplicaSet(rskeys[0], rskeys[1])
+		rset := s.ReplicaSet(rskeys[0], rskeys[1])
 		fmt.Fprintln(out, "-", rs, "replicas:", rset.Status.Replicas)
 	}
 	fmt.Fprintln(out, "==== Pods")
@@ -157,7 +164,7 @@ func (s *Informers) DebugInfo(out io.Writer) {
 	}
 	fmt.Fprintln(out, "=== Pods by IP")
 	for _, ip := range s.pods.GetIndexer().ListIndexFuncValues(IndexIP) {
-		pod, _ := s.PodByIP(ip)
+		pod := s.PodByIP(ip)
 		if pod.Status.PodIP != ip {
 			panic("ips not equal")
 		}
@@ -165,8 +172,8 @@ func (s *Informers) DebugInfo(out io.Writer) {
 	}
 	fmt.Fprintln(out, "=== Services by IP")
 	for _, ip := range s.services.GetIndexer().ListIndexFuncValues(IndexIP) {
-		svc, ok := s.ServiceByIP(ip)
-		if ok {
+		svc := s.ServiceByIP(ip)
+		if svc != nil {
 			if svc.Spec.ClusterIP != ip {
 				panic("ips not equal")
 			}
