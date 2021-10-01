@@ -6,7 +6,7 @@ RUN apk --update --no-cache add git build-base gcc
 COPY src /build
 WORKDIR /build
 
-RUN go build -ldflags "-X main.version=${VERSION}" -o kube-enricher
+RUN go build -ldflags "-X main.version=${VERSION}" -o kube-enricher cmd/kube-enricher/main.go
 
 FROM netsampler/goflow2:latest
 
