@@ -20,7 +20,7 @@ Generated fields are (with `[Prefix]` being by default `Src` or `Dst`):
 ## Build binary
 
 ```bash
-go build -o kube-enricher cmd/kube-enricher/main.go
+make all # = make fmt build lint test
 ```
 
 ## Build image
@@ -28,13 +28,11 @@ go build -o kube-enricher cmd/kube-enricher/main.go
 (This image will contain both goflow2 and the plugin)
 
 ```bash
-docker build --build-arg VERSION=`git describe --long HEAD` -t quay.io/jotak/goflow2:kube-latest .
-docker push quay.io/jotak/goflow2:kube-latest
+# build an image with version "dev":
+make image
 
-# or
-
-podman build --build-arg VERSION=`git describe --long HEAD` -t quay.io/jotak/goflow2:kube-latest .
-podman push quay.io/jotak/goflow2:kube-latest
+# build and push a test version:
+IMAGE=quay.io/myuser/goflow2-kube VERSION=test make image push
 ```
 
 To run it, simply `pipe` goflow2 output to `kube-enricher`.
@@ -87,6 +85,12 @@ GF_IP=`kubectl get svc goflow -ojsonpath='{.spec.clusterIP}'` && echo $GF_IP
 kubectl set env daemonset/ovnkube-node -c ovnkube-node -n ovn-kubernetes OVN_IPFIX_TARGETS="$GF_IP:2055"
 ```
 
+or simply:
+
+```bash
+make ovnk-config-exporter
+```
+
 Finally check goflow's logs for output
 
 ### Run on OpenShift with OVNKubernetes network provider
@@ -99,4 +103,9 @@ In OpenShift, a difference with the upstream `ovn-kubernetes` is that the flows 
 oc apply -f ./examples/goflow-kube.yaml
 GF_IP=`oc get svc goflow -ojsonpath='{.spec.clusterIP}'` && echo $GF_IP
 oc patch networks.operator.openshift.io cluster --type='json' -p "$(sed -e "s/GF_IP/$GF_IP/" examples/net-cluster-patch.json)"
+```
+or simply:
+
+```bash
+make cno-config-exporter
 ```
