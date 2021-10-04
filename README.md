@@ -17,6 +17,12 @@ Generated fields are (with `[Prefix]` being by default `Src` or `Dst`):
 - `[Prefix]WorkloadKind`: workload kind (deployment, daemon set, etc.)
 - `[Prefix]Warn`: any warning message that could have been triggered while processing kube info
 
+## Build binary
+
+```bash
+go build -o kube-enricher cmd/kube-enricher/main.go
+```
+
 ## Build image
 
 (This image will contain both goflow2 and the plugin)

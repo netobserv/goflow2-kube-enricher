@@ -3,7 +3,7 @@ ARG VERSION=""
 
 RUN apk --update --no-cache add git build-base gcc
 
-COPY src /build
+COPY . /build
 WORKDIR /build
 
 RUN go build -ldflags "-X main.version=${VERSION}" -o kube-enricher cmd/kube-enricher/main.go
