@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jotak/goflow2-kube-enricher/pkg/format"
-	"github.com/jotak/goflow2-kube-enricher/pkg/meta"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/format"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/meta"
 
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"

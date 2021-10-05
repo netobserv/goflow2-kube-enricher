@@ -1,5 +1,5 @@
 VERSION ?= dev
-IMAGE ?= quay.io/jotak/goflow2-kube
+IMAGE ?= quay.io/netobserv/goflow2-kube
 
 ifeq (,$(shell which podman 2>/dev/null))
 OCI_BIN ?= docker
@@ -22,7 +22,7 @@ build:
 	go build -o kube-enricher cmd/kube-enricher/main.go
 
 image:
-	$(OCI_BIN) build --build-arg VERSION=`$(VERSION)` -t $(IMAGE):$(VERSION) .
+	$(OCI_BIN) build --build-arg VERSION="$(VERSION)" -t $(IMAGE):$(VERSION) .
 
 push:
 	$(OCI_BIN) push $(IMAGE):$(VERSION)

@@ -21,7 +21,7 @@ spec:
         - -c
         # - /goflow2 -loglevel "info" | /kube-enricher -loglevel "info" -sourceformat "json"
         - /goflow2 -transport.file.sep= -format=pb -format.protobuf.fixedlen=true -loglevel "info" | /kube-enricher -loglevel "info" -sourceformat "pb"
-        image: quay.io/jotak/goflow2-kube:dev
+        image: quay.io/netobserv/goflow2-kube:dev
         imagePullPolicy: IfNotPresent
         name: goflow
       serviceAccountName: goflow
