@@ -88,7 +88,7 @@ kubectl set env daemonset/ovnkube-node -c ovnkube-node -n ovn-kubernetes OVN_IPF
 or simply:
 
 ```bash
-make ovnk-config-exporter
+make ovnk-deploy
 ```
 
 Finally check goflow's logs for output
@@ -107,5 +107,5 @@ oc patch networks.operator.openshift.io cluster --type='json' -p "$(sed -e "s/GF
 or simply:
 
 ```bash
-make cno-config-exporter
+make cno-deploy
 ```
