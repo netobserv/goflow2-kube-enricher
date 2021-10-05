@@ -47,7 +47,7 @@ Check [goflow-kube.yaml](./examples/goflow-kube.yaml) for an example.
 
 ## Examples in Kube
 
-Assuming built image is `quay.io/jotak/goflow2:kube-latest`.
+Assuming built image is `quay.io/netobserv/goflow2-kube:dev`.
 
 Since both goflow + enricher are contained inside a single image, you can declare the following command inside the pod container:
 
@@ -58,7 +58,7 @@ Since both goflow + enricher are contained inside a single image, you can declar
         - /bin/sh
         - -c
         - /goflow2 -loglevel "trace" | /kube-enricher -loglevel "trace"
-        image: quay.io/jotak/goflow2:kube-latest
+        image: quay.io/netobserv/goflow2-kube:dev
 # ...
 ```
 

@@ -9,10 +9,10 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/jotak/goflow2-kube-enricher/pkg/format"
-	jsonFormat "github.com/jotak/goflow2-kube-enricher/pkg/format/json"
-	pbFormat "github.com/jotak/goflow2-kube-enricher/pkg/format/pb"
-	"github.com/jotak/goflow2-kube-enricher/pkg/reader"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/format"
+	jsonFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/json"
+	pbFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/pb"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/reader"
 
 	"github.com/sirupsen/logrus"
 	"k8s.io/client-go/rest"

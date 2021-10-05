@@ -3,7 +3,7 @@ package reader
 import (
 	"testing"
 
-	"github.com/jotak/goflow2-kube-enricher/pkg/internal/mock"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/internal/mock"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )

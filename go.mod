@@ -1,4 +1,4 @@
-module github.com/jotak/goflow2-kube-enricher
+module github.com/netobserv/goflow2-kube-enricher
 
 go 1.12
 
