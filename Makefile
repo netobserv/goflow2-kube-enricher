@@ -27,12 +27,15 @@ image:
 push:
 	$(OCI_BIN) push $(IMAGE):$(VERSION)
 
-ovnk-config-exporter:
+ovnk-deploy:
 	sed -e 's/goflow2-kube:dev/goflow2-kube:$(VERSION)/' ./examples/goflow-kube.yaml | kubectl apply -f - && \
 	GF_IP=`kubectl get svc goflow -ojsonpath='{.spec.clusterIP}'` && echo "Goflow IP: $$GF_IP" && \
 	kubectl set env daemonset/ovnkube-node -c ovnkube-node -n ovn-kubernetes OVN_IPFIX_TARGETS="$$GF_IP:2055"
 
-cno-config-exporter:
+cno-deploy:
 	sed -e 's/goflow2-kube:dev/goflow2-kube:$(VERSION)/' ./examples/goflow-kube.yaml | kubectl apply -f - && \
 	GF_IP=`oc get svc goflow -ojsonpath='{.spec.clusterIP}'` && "Goflow IP: $$GF_IP" && \
 	oc patch networks.operator.openshift.io cluster --type='json' -p "$(sed -e "s/GF_IP/$$GF_IP/" examples/net-cluster-patch.json)"
+
+kill:
+	kubectl delete pod -l app=goflow
