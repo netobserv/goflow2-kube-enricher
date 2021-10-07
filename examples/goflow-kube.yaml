@@ -20,7 +20,7 @@ spec:
         - /bin/sh
         - -c
         # - /goflow2 -loglevel "info" | /kube-enricher -loglevel "info" -sourceformat "json"
-        - /goflow2 -transport.file.sep= -format=pb -format.protobuf.fixedlen=true -loglevel "info" | /kube-enricher -loglevel "info" -sourceformat "pb"
+        - /kube-enricher -loglevel "info" -stdinsourceformat "pb" -listen "netflow://:2055"
         image: quay.io/netobserv/goflow2-kube:dev
         imagePullPolicy: IfNotPresent
         name: goflow
