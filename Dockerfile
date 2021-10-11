@@ -8,7 +8,7 @@ WORKDIR /build
 
 RUN go build -ldflags "-X main.version=${VERSION}" -o kube-enricher cmd/kube-enricher/main.go
 
-FROM netsampler/goflow2:latest
+FROM alpine:latest
 
 COPY --from=builder /build/kube-enricher /
 
