@@ -53,10 +53,10 @@ func (pbFormat *PbFormat) Next() (map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return RenderMessage(message)
+	return RenderMessage(&message)
 }
 
-func RenderMessage(message goflowpb.FlowMessage) (map[string]interface{}, error) {
+func RenderMessage(message *goflowpb.FlowMessage) (map[string]interface{}, error) {
 	outputMap := make(map[string]interface{})
 	err := ms.Decode(message, &outputMap)
 	if err != nil {

@@ -22,7 +22,7 @@ func (w *TransportWrapper) Send(key, data []byte) error {
 	if err != nil {
 		return err
 	}
-	renderedMsg, err := pbFormat.RenderMessage(message)
+	renderedMsg, err := pbFormat.RenderMessage(&message)
 	if err == nil {
 		w.c <- renderedMsg
 	}
