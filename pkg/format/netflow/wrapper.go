@@ -1,9 +1,9 @@
 package netflow
 
 import (
-	"github.com/golang/protobuf/proto"
 	pbFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/pb"
 	goflowpb "github.com/netsampler/goflow2/pb"
+	"google.golang.org/protobuf/proto"
 )
 
 // This is en implementation of the goflow2 transport interface
