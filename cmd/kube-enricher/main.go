@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net/url"
@@ -20,6 +21,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"k8s.io/client-go/rest"
 )
+
+const jsonFlagName = "json"
+const pbFlagName = "pb"
+const netflowScheme = "netflow"
 
 var (
 	version           = "unknown"
@@ -59,9 +64,9 @@ func main() {
 	var in format.Format
 	if *listenAddress == "" {
 		switch *stdinSourceFormat {
-		case "json":
+		case jsonFlagName:
 			in = jsonFormat.NewScanner(os.Stdin)
-		case "pb":
+		case pbFlagName:
 			in = pbFormat.NewScanner(os.Stdin)
 		default:
 			log.Fatal("Unknown source format: ", stdinSourceFormat)
@@ -71,13 +76,14 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		if listenAddrUrl.Scheme == "netflow" {
+		if listenAddrUrl.Scheme == netflowScheme {
 			hostname := listenAddrUrl.Hostname()
 			port, err := strconv.ParseUint(listenAddrUrl.Port(), 10, 64)
 			if err != nil {
 				log.Fatal("Failed reading listening port: ", err)
 			}
-			in = nfFormat.NewDriver(hostname, int(port))
+			ctx := context.Background()
+			in = nfFormat.StartDriver(ctx, hostname, int(port))
 		} else {
 			log.Fatal("Unknown listening protocol")
 		}

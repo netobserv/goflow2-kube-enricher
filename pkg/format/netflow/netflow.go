@@ -10,18 +10,19 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type GoflowDriver struct {
+const channelSize = 5
+
+type Driver struct {
 	in chan map[string]interface{}
 }
 
-func NewDriver(hostname string, port int) *GoflowDriver {
-	gf := GoflowDriver{}
-	gf.in = make(chan map[string]interface{})
+// Start a new go routine to handle netflow connections
+func StartDriver(ctx context.Context, hostname string, port int) *Driver {
+	gf := Driver{}
+	gf.in = make(chan map[string]interface{}, channelSize)
 
-	go func(in chan map[string]interface{}) {
-		ctx := context.Background()
-
-		transporter := NewWrapper(in)
+	go func() {
+		transporter := NewWrapper(gf.in)
 
 		formatter, err := goflow2Format.FindFormat(ctx, "pb")
 		if err != nil {
@@ -36,12 +37,12 @@ func NewDriver(hostname string, port int) *GoflowDriver {
 		err = sNF.FlowRoutine(1, hostname, port, false)
 		log.Fatal(err)
 
-	}(gf.in)
+	}()
 
 	return &gf
 }
 
-func (gf *GoflowDriver) Next() (map[string]interface{}, error) {
+func (gf *Driver) Next() (map[string]interface{}, error) {
 	msg := <-gf.in
 	return msg, nil
 }
