@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"k8s.io/client-go/kubernetes"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/netobserv/goflow2-kube-enricher/pkg/format"
 	jsonFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/json"
+	nfFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/netflow"
 	pbFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/pb"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/reader"
 
@@ -18,16 +22,21 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+const jsonFlagName = "json"
+const pbFlagName = "pb"
+const netflowScheme = "netflow"
+
 var (
-	version       = "unknown"
-	app           = "kube-enricher"
-	fieldsMapping = flag.String("mapping", "SrcAddr=Src,DstAddr=Dst", "Mapping of fields containing IPs to prefixes for new fields")
-	kubeConfig    = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
-	logLevel      = flag.String("loglevel", "info", "Log level")
-	versionFlag   = flag.Bool("v", false, "Print version")
-	log           = logrus.WithField("module", app)
-	appVersion    = fmt.Sprintf("%s %s", app, version)
-	sourceFormat  = flag.String("sourceformat", "json", "format of the input string")
+	version           = "unknown"
+	app               = "kube-enricher"
+	listenAddress     = flag.String("listen", "", "listen address, if empty, will listen to stdin")
+	fieldsMapping     = flag.String("mapping", "SrcAddr=Src,DstAddr=Dst", "Mapping of fields containing IPs to prefixes for new fields")
+	kubeConfig        = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+	logLevel          = flag.String("loglevel", "info", "Log level")
+	versionFlag       = flag.Bool("v", false, "Print version")
+	log               = logrus.WithField("module", app)
+	appVersion        = fmt.Sprintf("%s %s", app, version)
+	stdinSourceFormat = flag.String("stdinsourceformat", "json", "format of the input string")
 )
 
 func main() {
@@ -53,13 +62,31 @@ func main() {
 	}
 
 	var in format.Format
-	switch *sourceFormat {
-	case "json":
-		in = jsonFormat.NewScanner(os.Stdin)
-	case "pb":
-		in = pbFormat.NewScanner(os.Stdin)
-	default:
-		log.Fatal("Unknown source format: ", sourceFormat)
+	if *listenAddress == "" {
+		switch *stdinSourceFormat {
+		case jsonFlagName:
+			in = jsonFormat.NewScanner(os.Stdin)
+		case pbFlagName:
+			in = pbFormat.NewScanner(os.Stdin)
+		default:
+			log.Fatal("Unknown source format: ", stdinSourceFormat)
+		}
+	} else {
+		listenAddrUrl, err := url.Parse(*listenAddress)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if listenAddrUrl.Scheme == netflowScheme {
+			hostname := listenAddrUrl.Hostname()
+			port, err := strconv.ParseUint(listenAddrUrl.Port(), 10, 64)
+			if err != nil {
+				log.Fatal("Failed reading listening port: ", err)
+			}
+			ctx := context.Background()
+			in = nfFormat.StartDriver(ctx, hostname, int(port))
+		} else {
+			log.Fatal("Unknown listening protocol")
+		}
 	}
 
 	clientset, err := kubernetes.NewForConfig(loadKubeConfig())

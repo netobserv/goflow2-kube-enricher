@@ -7,10 +7,11 @@ import (
 	"io"
 	"net"
 
-	"github.com/golang/protobuf/proto"
 	ms "github.com/mitchellh/mapstructure"
 	goflowFormat "github.com/netsampler/goflow2/format/common"
 	goflowpb "github.com/netsampler/goflow2/pb"
+	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
 )
 
 type PbFormat struct {
@@ -31,8 +32,8 @@ func (pbFormat *PbFormat) Next() (map[string]interface{}, error) {
 	if err != nil && err != io.EOF {
 		return nil, err
 	}
-	len, lenSize := proto.DecodeVarint(lenBuf)
-	if len == 0 {
+	len, lenSize := protowire.ConsumeVarint(lenBuf)
+	if lenSize < 0 {
 		return nil, errors.New("protobuf: Could not parse message length")
 	}
 
@@ -53,10 +54,10 @@ func (pbFormat *PbFormat) Next() (map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return renderMessage(message)
+	return RenderMessage(&message)
 }
 
-func renderMessage(message goflowpb.FlowMessage) (map[string]interface{}, error) {
+func RenderMessage(message *goflowpb.FlowMessage) (map[string]interface{}, error) {
 	outputMap := make(map[string]interface{})
 	err := ms.Decode(message, &outputMap)
 	if err != nil {
