@@ -81,7 +81,7 @@ Then:
 
 ```bash
 kubectl apply -f ./examples/goflow-kube.yaml
-GF_IP=`kubectl get svc goflow -ojsonpath='{.spec.clusterIP}'` && echo $GF_IP
+GF_IP=`kubectl get svc goflow-kube -ojsonpath='{.spec.clusterIP}'` && echo $GF_IP
 kubectl set env daemonset/ovnkube-node -c ovnkube-node -n ovn-kubernetes OVN_IPFIX_TARGETS="$GF_IP:2055"
 ```
 
@@ -111,7 +111,7 @@ In OpenShift, a difference with the upstream `ovn-kubernetes` is that the flows 
 
 ```bash
 oc apply -f ./examples/goflow-kube.yaml
-GF_IP=`oc get svc goflow -ojsonpath='{.spec.clusterIP}'` && echo $GF_IP
+GF_IP=`oc get svc goflow-kube -ojsonpath='{.spec.clusterIP}'` && echo $GF_IP
 oc patch networks.operator.openshift.io cluster --type='json' -p "$(sed -e "s/GF_IP/$GF_IP/" examples/net-cluster-patch.json)"
 ```
 or simply:

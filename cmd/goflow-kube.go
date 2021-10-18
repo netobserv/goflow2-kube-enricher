@@ -29,7 +29,7 @@ const netflowScheme = "netflow"
 
 var (
 	version           = "unknown"
-	app               = "kube-enricher"
+	app               = "goflow-kube"
 	listenAddress     = flag.String("listen", "", "listen address, if empty, will listen to stdin")
 	fieldsMapping     = flag.String("mapping", "SrcAddr=Src,DstAddr=Dst", "Mapping of fields containing IPs to prefixes for new fields")
 	kubeConfig        = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
@@ -74,13 +74,13 @@ func main() {
 			log.Fatal("Unknown source format: ", stdinSourceFormat)
 		}
 	} else {
-		listenAddrUrl, err := url.Parse(*listenAddress)
+		listenAddrURL, err := url.Parse(*listenAddress)
 		if err != nil {
 			log.Fatal(err)
 		}
-		if listenAddrUrl.Scheme == netflowScheme {
-			hostname := listenAddrUrl.Hostname()
-			port, err := strconv.ParseUint(listenAddrUrl.Port(), 10, 64)
+		if listenAddrURL.Scheme == netflowScheme {
+			hostname := listenAddrURL.Hostname()
+			port, err := strconv.ParseUint(listenAddrURL.Port(), 10, 64)
 			if err != nil {
 				log.Fatal("Failed reading listening port: ", err)
 			}
@@ -172,7 +172,7 @@ func parseFieldMapping(in string) ([]reader.FieldMapping, error) {
 	for _, pair := range fields {
 		kv := strings.Split(pair, "=")
 		if len(kv) != 2 {
-			return mapping, fmt.Errorf("Invalid fields mapping pair '%s' in '%s'", pair, in)
+			return mapping, fmt.Errorf("invalid fields mapping pair '%s' in '%s'", pair, in)
 		}
 		mapping = append(mapping, reader.FieldMapping{
 			FieldName: kv[0],

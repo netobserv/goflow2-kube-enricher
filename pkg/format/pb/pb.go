@@ -14,22 +14,22 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type PbFormat struct {
+type Format struct {
 	in io.Reader
 }
 
-func NewScanner(in io.Reader) *PbFormat {
-	input := PbFormat{}
+func NewScanner(in io.Reader) *Format {
+	input := Format{}
 	input.in = in
 	return &input
 }
 
-func (pbFormat *PbFormat) Next() (map[string]interface{}, error) {
+func (pbFormat *Format) Next() (map[string]interface{}, error) {
 	lenBuf := make([]byte, binary.MaxVarintLen64)
 
 	// Message is prefixed by its length, we read that length
 	_, err := io.ReadAtLeast(pbFormat.in, lenBuf, binary.MaxVarintLen64)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
 	len, lenSize := protowire.ConsumeVarint(lenBuf)
@@ -44,7 +44,7 @@ func (pbFormat *PbFormat) Next() (map[string]interface{}, error) {
 		copy(msgBuf[0:binary.MaxVarintLen64-lenSize], lenBuf[lenSize:binary.MaxVarintLen64])
 	}
 	_, err = io.ReadFull(pbFormat.in, msgBuf[binary.MaxVarintLen64-lenSize:])
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
 	msgBuf = bytes.TrimSuffix(msgBuf, []byte("\n"))

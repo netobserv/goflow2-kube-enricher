@@ -1,14 +1,14 @@
 FROM registry.access.redhat.com/ubi8/go-toolset:1.15.14-14 as builder
 ARG VERSION=""
 
-WORKDIR /opt/app-root/src
-
+WORKDIR /opt/app-root
 COPY . .
 
-RUN go build -ldflags "-X main.version=${VERSION}" -mod vendor -o kube-enricher cmd/kube-enricher/main.go
+RUN go build -ldflags "-X main.version=${VERSION}" -mod vendor -o goflow-kube cmd/goflow-kube.go
 
 FROM registry.access.redhat.com/ubi8/ubi-minimal:8.4-210
 
-COPY --from=builder /opt/app-root/src/kube-enricher ./
+COPY --from=builder /opt/app-root/goflow-kube ./
 
-ENTRYPOINT ["./kube-enricher"]
+ENTRYPOINT ["./goflow-kube"]
+

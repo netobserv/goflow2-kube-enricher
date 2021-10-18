@@ -5,6 +5,7 @@ import (
 	"log"
 
 	goflow2Format "github.com/netsampler/goflow2/format"
+	// this blank import triggers pb registration via init
 	_ "github.com/netsampler/goflow2/format/protobuf"
 	"github.com/netsampler/goflow2/utils"
 	"github.com/sirupsen/logrus"
