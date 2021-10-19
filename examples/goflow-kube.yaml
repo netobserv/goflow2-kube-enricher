@@ -16,14 +16,18 @@ spec:
         app: goflow
     spec:
       containers:
-      - command:
-        - /bin/sh
-        - -c
-        # - /goflow2 -loglevel "info" | /kube-enricher -loglevel "info" -sourceformat "json"
-        - /kube-enricher -loglevel "info" -stdinsourceformat "pb" -listen "netflow://:2055"
-        image: quay.io/netobserv/goflow2-kube:dev
-        imagePullPolicy: IfNotPresent
-        name: goflow
+        - command:
+            - /bin/sh
+            - -c
+            # - /goflow2 -loglevel "info" | /kube-enricher -loglevel "info" -sourceformat "json"
+            - /kube-enricher -loglevel "info" -stdinsourceformat "pb" -listen "netflow://:2055"
+          image: quay.io/netobserv/goflow2-kube:dev
+          imagePullPolicy: IfNotPresent
+          name: goflow
+          resources:
+            limits:
+              memory: 512Mi
+              cpu: "1"
       serviceAccountName: goflow
 ---
 apiVersion: v1
@@ -35,8 +39,8 @@ metadata:
     app: goflow
 spec:
   ports:
-  - port: 2055
-    protocol: UDP
+    - port: 2055
+      protocol: UDP
   selector:
     app: goflow
 ---
@@ -59,9 +63,9 @@ roleRef:
   kind: ClusterRole
   name: goflow
 subjects:
-- kind: ServiceAccount
-  name: goflow
-  namespace: default
+  - kind: ServiceAccount
+    name: goflow
+    namespace: default
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -70,14 +74,14 @@ metadata:
     app: goflow
   name: goflow
 rules:
-- apiGroups:
-  - ""
-  - "apps"
-  resources:
-  - pods
-  - replicasets
-  - services
-  verbs:
-  - list
-  - get
-  - watch
+  - apiGroups:
+      - ""
+      - "apps"
+    resources:
+      - pods
+      - replicasets
+      - services
+    verbs:
+      - list
+      - get
+      - watch

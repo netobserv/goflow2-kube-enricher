@@ -1,5 +1,7 @@
 VERSION ?= dev
 IMAGE ?= quay.io/netobserv/goflow2-kube
+GOLANGCI_LINT_VERSION ?= v1.42.1
+COVERPROFILE ?= coverage.out
 
 ifeq (,$(shell which podman 2>/dev/null))
 OCI_BIN ?= docker
@@ -12,16 +14,31 @@ all: fmt build lint test
 fmt:
 	go fmt ./...
 
-lint:
-	golangci-lint run
+prereqs:
+	@echo "### Test if prerequisites are met, and installing missing dependencies"
+	test -f $(go env GOPATH)/bin/golangci-lint || go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+	test -f $(go env GOPATH)/bin/staticcheck || go install honnef.co/go/tools/cmd/staticcheck@latest
+
+lint: prereqs
+	@echo "### Linting code"
+	# staticcheck does not work properly when invoked inside golangci-lint
+	staticcheck -f stylish ./...
+	golangci-lint run ./...
+
+verify: 
+	lint test
+
+.PHONY: 
+	prereqs lint image lint test verify
 
 test:
-	go test ./...
+	go test ./... -coverprofile ${COVERPROFILE}
 
 build:
 	go build -o kube-enricher cmd/kube-enricher/main.go
 
 image:
+	@echo "### Building container with ${OCI_BIN}"
 	$(OCI_BIN) build --build-arg VERSION="$(VERSION)" -t $(IMAGE):$(VERSION) .
 
 push:
