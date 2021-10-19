@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/netobserv/goflow2-kube-enricher/pkg/export"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/format"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/meta"
 
@@ -43,7 +44,7 @@ func NewReader(format format.Format, log *logrus.Entry, mapping []FieldMapping, 
 	}
 }
 
-func (r *Reader) Start() {
+func (r *Reader) Start(loki export.Loki) {
 	for {
 		record, err := r.format.Next()
 		if err != nil {
@@ -57,7 +58,12 @@ func (r *Reader) Start() {
 		if err != nil {
 			r.log.Error(err)
 		} else {
-			fmt.Println(string(enriched))
+			enrichedString := string(enriched)
+			r.log.Trace(enrichedString)
+
+			if err = loki.Process(strings.NewReader(enrichedString)); err != nil {
+				r.log.Error(err)
+			}
 		}
 	}
 }

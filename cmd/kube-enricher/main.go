@@ -96,18 +96,15 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Info("Starting loki...")
+	log.Info("Creating loki...")
 	loki, err := export.NewLoki(loadLokiConfig())
 	if err != nil {
 		log.WithError(err).Fatal("Can't load Loki exporter")
 	}
-	if err := loki.Process(os.Stdin); err != nil {
-		log.WithError(err).Fatal("Processing standard input")
-	}
 
 	r := reader.NewReader(in, log, mapping, clientset)
 	log.Info("Starting reader...")
-	r.Start()
+	r.Start(loki)
 }
 
 // loadKubeConfig fetches a given kubernetes configuration in the following order

@@ -19,8 +19,7 @@ spec:
         - command:
             - /bin/sh
             - -c
-            # - /goflow2 -loglevel "info" | /kube-enricher -loglevel "info" -sourceformat "json"
-            - /kube-enricher -loglevel "info" -stdinsourceformat "pb" -listen "netflow://:2055"
+            - /kube-enricher -listen netflow://:2055 -loglevel "trace" -lokiconfig /etc/loki-exporter/loki-exporter.yaml
           image: quay.io/netobserv/goflow2-kube:dev
           imagePullPolicy: IfNotPresent
           name: goflow
@@ -33,7 +32,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: goflow
+  name: goflow 
   namespace: default
   labels:
     app: goflow
@@ -43,6 +42,22 @@ spec:
       protocol: UDP
   selector:
     app: goflow
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-exporter-config
+data:
+  loki-exporter.yaml: |
+    labels:
+      - SrcNamespace
+      - SrcWorkload
+      - DstNamespace
+      - DstWorkload
+    ignoreList:
+      - NextHop
+      - NextHopAS
+    printInput: true
 ---
 apiVersion: v1
 kind: ServiceAccount
