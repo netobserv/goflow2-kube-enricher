@@ -4,6 +4,7 @@ package export
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -33,27 +34,39 @@ type Loki struct {
 	lokiConfig loki.Config
 	emitter    emitter
 	timeNow    func() time.Time
+	ready      bool
 }
 
 // NewLoki creates a Loki flow exporter from a given configuration
 func NewLoki(cfg *Config) (Loki, error) {
 	if err := validate(cfg); err != nil {
-		return Loki{}, fmt.Errorf("the provided config is not valid: %w", err)
+		return NewEmptyLoki(), fmt.Errorf("the provided config is not valid: %w", err)
 	}
 	lcfg, err := cfg.buildLokiConfig()
 	if err != nil {
-		return Loki{}, err
+		return NewEmptyLoki(), err
 	}
 	lokiClient, err := loki.NewWithLogger(lcfg, logadapter.NewLogger(log))
 	if err != nil {
-		return Loki{}, err
+		return NewEmptyLoki(), err
 	}
 	return Loki{
 		config:     *cfg,
 		lokiConfig: lcfg,
 		emitter:    lokiClient,
 		timeNow:    time.Now,
+		ready:      true,
 	}, nil
+}
+
+func NewEmptyLoki() Loki {
+	return Loki{
+		ready: false,
+	}
+}
+
+func (l *Loki) IsReady() bool {
+	return l.ready
 }
 
 // Process the flows provided as JSON lines by the input io.Reader until the end of the file
@@ -78,6 +91,14 @@ func (l *Loki) processRecord(rawRecord []byte) error {
 	err := json.Unmarshal(rawRecord, &record)
 	if err != nil {
 		return err
+	}
+
+	return l.ProcessJsonRecord(record)
+}
+
+func (l *Loki) ProcessJsonRecord(record map[string]interface{}) error {
+	if !l.IsReady() {
+		return errors.New("Loki is not ready")
 	}
 
 	// Get timestamp from record (default: TimeFlowStart)

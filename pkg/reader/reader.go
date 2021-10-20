@@ -54,16 +54,9 @@ func (r *Reader) Start(loki export.Loki) {
 		if record == nil {
 			return
 		}
-		enriched, err := r.enrich(record)
+		_, err = r.enrich(record, loki)
 		if err != nil {
 			r.log.Error(err)
-		} else {
-			enrichedString := string(enriched)
-			r.log.Trace(enrichedString)
-
-			if err = loki.Process(strings.NewReader(enrichedString)); err != nil {
-				r.log.Error(err)
-			}
 		}
 	}
 }
@@ -78,7 +71,7 @@ var ownerNameFunc = func(owners interface{}, idx int) string {
 	return owner.Kind + "/" + owner.Name
 }
 
-func (r *Reader) enrich(record map[string]interface{}) ([]byte, error) {
+func (r *Reader) enrich(record map[string]interface{}, loki export.Loki) ([]byte, error) {
 	for _, fieldMap := range r.mapping {
 		val, ok := record[fieldMap.FieldName]
 		if !ok {
@@ -96,6 +89,10 @@ func (r *Reader) enrich(record map[string]interface{}) ([]byte, error) {
 			// If there is no Pod for such IP, we try searching for a service
 			r.enrichService(ip, record, fieldMap)
 		}
+	}
+
+	if err := loki.ProcessJsonRecord(record); err != nil {
+		r.log.Error(err)
 	}
 
 	return json.Marshal(record)
