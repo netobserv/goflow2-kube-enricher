@@ -193,7 +193,7 @@ func getFloat64(timestamp interface{}) (ft float64, ok bool) {
 	case uint32:
 		return float64(i), true
 	default:
-		fmt.Printf("Type %T is not implemented for float64 conversion\n", i)
+		log.Warnf("Type %T is not implemented for float64 conversion\n", i)
 		return math.NaN(), false
 	}
 }
