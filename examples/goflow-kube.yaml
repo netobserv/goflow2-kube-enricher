@@ -15,6 +15,10 @@ spec:
       labels:
         app: goflow
     spec:
+      volumes:
+        - name: config-vol
+          configMap:
+            name: loki-exporter-config
       containers:
         - command:
             - /bin/sh
@@ -27,6 +31,9 @@ spec:
             limits:
               memory: 512Mi
               cpu: "1"
+          volumeMounts:
+              - mountPath: /etc/loki-exporter
+                name: config-vol
       serviceAccountName: goflow
 ---
 apiVersion: v1
