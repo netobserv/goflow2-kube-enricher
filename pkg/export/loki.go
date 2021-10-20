@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"time"
 
@@ -139,10 +140,10 @@ func (l *Loki) extractTimestamp(record map[string]interface{}) time.Time {
 			Warnf("Timestamp label not found in record. Using local time")
 		return l.timeNow()
 	}
-	ft, ok := timestamp.(float64)
+	ft, ok := getFloat64(timestamp)
 	if !ok {
 		log.WithField(string(l.config.TimestampLabel), timestamp).
-			Warnf("Invalid timestamp found: number expected. Using local time")
+			Warnf("Invalid timestamp found: float64 expected but got %T. Using local time", ft)
 		return l.timeNow()
 	}
 	if ft == 0 {
@@ -174,5 +175,25 @@ func (l *Loki) addNonStaticLabels(record map[string]interface{}, labels model.La
 			continue
 		}
 		labels[sanitizedKey] = lv
+	}
+}
+
+func getFloat64(timestamp interface{}) (ft float64, ok bool) {
+	switch i := timestamp.(type) {
+	case float64:
+		return i, true
+	case float32:
+		return float64(i), true
+	case int64:
+		return float64(i), true
+	case int32:
+		return float64(i), true
+	case uint64:
+		return float64(i), true
+	case uint32:
+		return float64(i), true
+	default:
+		fmt.Printf("Type %T is not implemented for float64 conversion\n", i)
+		return math.NaN(), false
 	}
 }
