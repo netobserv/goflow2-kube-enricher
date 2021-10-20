@@ -145,7 +145,7 @@ func loadKubeConfig() *rest.Config {
 func loadLokiConfig() *export.Config {
 	var config *export.Config
 	var err error
-	if lokiConfig == nil && *lokiConfig != "" {
+	if lokiConfig != nil && *lokiConfig != "" {
 		flog := log.WithField("configFile", *lokiConfig)
 		flog.Info("Using command line supplied loki config")
 		config, err = export.LoadConfig(*lokiConfig)
