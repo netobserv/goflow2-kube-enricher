@@ -54,10 +54,7 @@ func (r *Reader) Start(loki export.Loki) {
 		if record == nil {
 			return
 		}
-		_, err = r.enrich(record, loki)
-		if err != nil {
-			r.log.Error(err)
-		}
+		r.enrich(record, loki)
 	}
 }
 
@@ -71,7 +68,7 @@ var ownerNameFunc = func(owners interface{}, idx int) string {
 	return owner.Kind + "/" + owner.Name
 }
 
-func (r *Reader) enrich(record map[string]interface{}, loki export.Loki) ([]byte, error) {
+func (r *Reader) enrich(record map[string]interface{}, loki export.Loki) map[string]interface{} {
 	for _, fieldMap := range r.mapping {
 		val, ok := record[fieldMap.FieldName]
 		if !ok {
@@ -95,7 +92,11 @@ func (r *Reader) enrich(record map[string]interface{}, loki export.Loki) ([]byte
 		r.log.Error(err)
 	}
 
-	return json.Marshal(record)
+	return record
+}
+
+func (r *Reader) enrichMarshal(record map[string]interface{}, loki export.Loki) ([]byte, error) {
+	return json.Marshal(r.enrich(record, loki))
 }
 
 func (r *Reader) enrichService(ip string, record map[string]interface{}, fieldMap FieldMapping) {

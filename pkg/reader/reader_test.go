@@ -40,7 +40,7 @@ func TestEnrichNoMatch(t *testing.T) {
 		"DstAddr": "10.0.0.2",
 	}
 
-	jsonBytes, err := r.enrich(records, export.NewEmptyLoki())
+	jsonBytes, err := r.enrichMarshal(records, export.NewEmptyLoki())
 
 	assert.Nil(err)
 	assert.NotEmpty(jsonBytes)
@@ -67,7 +67,7 @@ func TestEnrichSinglePods(t *testing.T) {
 		"DstAddr": "10.0.0.2",
 	}
 
-	jsonBytes, err := r.enrich(records, export.NewEmptyLoki())
+	jsonBytes, err := r.enrichMarshal(records, export.NewEmptyLoki())
 
 	assert.Nil(err)
 	assert.NotEmpty(jsonBytes)
@@ -99,7 +99,7 @@ func TestEnrichDeploymentPods(t *testing.T) {
 		"DstAddr": "10.0.0.2",
 	}
 
-	jsonBytes, err := r.enrich(records, export.NewEmptyLoki())
+	jsonBytes, err := r.enrichMarshal(records, export.NewEmptyLoki())
 
 	assert.Nil(err)
 	assert.NotEmpty(jsonBytes)
@@ -131,7 +131,7 @@ func TestEnrichPodAndService(t *testing.T) {
 		"DstAddr": "10.0.0.2",
 	}
 
-	jsonBytes, err := r.enrich(records, export.NewEmptyLoki())
+	jsonBytes, err := r.enrichMarshal(records, export.NewEmptyLoki())
 
 	assert.Nil(err)
 	assert.NotEmpty(jsonBytes)
