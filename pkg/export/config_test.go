@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -50,8 +49,4 @@ printInput: true
 	assert.NotZero(t, ccfg.BatchSize)
 	assert.Equal(t, cfg.BatchSize, ccfg.BatchSize)
 	assert.Equal(t, cfg.MinBackoff, ccfg.BackoffConfig.MinBackoff)
-
-	_ = mock.Mock{}
-	assert.True(t, true)
-	require.True(t, true)
 }
