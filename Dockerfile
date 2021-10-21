@@ -11,4 +11,3 @@ FROM registry.access.redhat.com/ubi8/ubi-minimal:8.4-210
 COPY --from=builder /opt/app-root/goflow-kube ./
 
 ENTRYPOINT ["./goflow-kube"]
-

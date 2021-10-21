@@ -1,3 +1,4 @@
+// Package json defines a json Format, implementing Format interface for input
 package json
 
 import (

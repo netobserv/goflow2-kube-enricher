@@ -1,3 +1,4 @@
+// Package pb defines a Protobuf Format, implementing Format interface for input
 package pb
 
 import (

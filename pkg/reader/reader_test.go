@@ -3,10 +3,11 @@ package reader
 import (
 	"testing"
 
-	"github.com/netobserv/goflow2-kube-enricher/pkg/export"
-	"github.com/netobserv/goflow2-kube-enricher/pkg/internal/mock"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/netobserv/goflow2-kube-enricher/pkg/config"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/internal/mock"
 )
 
 func setupSimpleReader() (*Reader, *mock.InformersMock) {
@@ -14,16 +15,7 @@ func setupSimpleReader() (*Reader, *mock.InformersMock) {
 	r := Reader{
 		log:       logrus.NewEntry(logrus.New()),
 		informers: informers,
-		mapping: []FieldMapping{
-			{
-				FieldName: "SrcAddr",
-				PrefixOut: "Src",
-			},
-			{
-				FieldName: "DstAddr",
-				PrefixOut: "Dst",
-			},
-		},
+		config:    config.Default(),
 	}
 	return &r, informers
 }
@@ -40,10 +32,9 @@ func TestEnrichNoMatch(t *testing.T) {
 		"DstAddr": "10.0.0.2",
 	}
 
-	jsonBytes, err := r.enrichMarshal(records, export.NewEmptyLoki())
+	err := r.enrich(records, nil)
 
 	assert.Nil(err)
-	assert.NotEmpty(jsonBytes)
 	assert.Equal(map[string]interface{}{
 		"SrcAddr":         "10.0.0.1",
 		"SrcPod":          "test-pod1",
@@ -67,10 +58,9 @@ func TestEnrichSinglePods(t *testing.T) {
 		"DstAddr": "10.0.0.2",
 	}
 
-	jsonBytes, err := r.enrichMarshal(records, export.NewEmptyLoki())
+	err := r.enrich(records, nil)
 
 	assert.Nil(err)
-	assert.NotEmpty(jsonBytes)
 	assert.Equal(map[string]interface{}{
 		"SrcAddr":         "10.0.0.1",
 		"SrcPod":          "test-pod1",
@@ -99,10 +89,9 @@ func TestEnrichDeploymentPods(t *testing.T) {
 		"DstAddr": "10.0.0.2",
 	}
 
-	jsonBytes, err := r.enrichMarshal(records, export.NewEmptyLoki())
+	err := r.enrich(records, nil)
 
 	assert.Nil(err)
-	assert.NotEmpty(jsonBytes)
 	assert.Equal(map[string]interface{}{
 		"SrcAddr":         "10.0.0.1",
 		"SrcPod":          "test-pod1",
@@ -131,10 +120,9 @@ func TestEnrichPodAndService(t *testing.T) {
 		"DstAddr": "10.0.0.2",
 	}
 
-	jsonBytes, err := r.enrichMarshal(records, export.NewEmptyLoki())
+	err := r.enrich(records, nil)
 
 	assert.Nil(err)
-	assert.NotEmpty(jsonBytes)
 	assert.Equal(map[string]interface{}{
 		"SrcAddr":         "10.0.0.1",
 		"SrcPod":          "test-pod1",

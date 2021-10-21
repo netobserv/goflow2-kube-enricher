@@ -7,38 +7,32 @@ import (
 	"net/url"
 	"os"
 	"strconv"
-	"strings"
 
+	"github.com/sirupsen/logrus"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/netobserv/goflow2-kube-enricher/pkg/config"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/export"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/format"
 	jsonFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/json"
 	nfFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/netflow"
 	pbFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/pb"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/reader"
-
-	"github.com/netobserv/goflow2-kube-enricher/pkg/export"
-	"github.com/sirupsen/logrus"
-	"k8s.io/client-go/rest"
 )
 
-const jsonFlagName = "json"
-const pbFlagName = "pb"
 const netflowScheme = "netflow"
 
 var (
-	version           = "unknown"
-	app               = "goflow-kube"
-	listenAddress     = flag.String("listen", "", "listen address, if empty, will listen to stdin")
-	fieldsMapping     = flag.String("mapping", "SrcAddr=Src,DstAddr=Dst", "Mapping of fields containing IPs to prefixes for new fields")
-	kubeConfig        = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
-	lokiConfig        = flag.String("lokiconfig", "", "absolute path to the lokiconfig file")
-	logLevel          = flag.String("loglevel", "info", "Log level")
-	versionFlag       = flag.Bool("v", false, "Print version")
-	log               = logrus.WithField("module", app)
-	appVersion        = fmt.Sprintf("%s %s", app, version)
-	stdinSourceFormat = flag.String("stdinsourceformat", "json", "format of the input string")
+	version        = "unknown"
+	app            = "goflow-kube"
+	mainConfigPath = flag.String("config", "", "absolute path to the main configuration file")
+	kubeConfigPath = flag.String("kubeconfig", "", "absolute path to a kubeconfig file for advanced kube client configuration")
+	logLevel       = flag.String("loglevel", "info", "log level")
+	versionFlag    = flag.Bool("v", false, "print version")
+	log            = logrus.WithField("module", app)
+	appVersion     = fmt.Sprintf("%s %s", app, version)
 )
 
 func main() {
@@ -58,23 +52,25 @@ func main() {
 	logrus.SetLevel(lvl)
 	log.Infof("Starting %s at log level %s", appVersion, *logLevel)
 
-	mapping, err := parseFieldMapping(*fieldsMapping)
+	cfg := loadMainConfig()
+	log.Info("Creating loki...")
+	loki, err := export.NewLoki(&cfg.Loki)
 	if err != nil {
-		log.Fatal(err)
+		log.WithError(err).Fatal("Can't load Loki exporter")
 	}
 
 	var in format.Format
-	if *listenAddress == "" {
-		switch *stdinSourceFormat {
-		case jsonFlagName:
+	if cfg.Listen == "" {
+		switch cfg.StdinFormat {
+		case config.JSONFlagName:
 			in = jsonFormat.NewScanner(os.Stdin)
-		case pbFlagName:
+		case config.PBFlagName:
 			in = pbFormat.NewScanner(os.Stdin)
 		default:
-			log.Fatal("Unknown source format: ", stdinSourceFormat)
+			log.Fatal("Unknown source format: ", cfg.StdinFormat)
 		}
 	} else {
-		listenAddrURL, err := url.Parse(*listenAddress)
+		listenAddrURL, err := url.Parse(cfg.Listen)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -84,6 +80,7 @@ func main() {
 			if err != nil {
 				log.Fatal("Failed reading listening port: ", err)
 			}
+			log.Infof("Start listening on %s", cfg.Listen)
 			ctx := context.Background()
 			in = nfFormat.StartDriver(ctx, hostname, int(port))
 		} else {
@@ -96,15 +93,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Info("Creating loki...")
-	loki, err := export.NewLoki(loadLokiConfig())
-	if err != nil {
-		log.WithError(err).Fatal("Can't load Loki exporter")
-	}
-
-	r := reader.NewReader(in, log, mapping, clientset)
+	r := reader.NewReader(in, log, cfg, clientset)
 	log.Info("Starting reader...")
-	r.Start(loki)
+	r.Start(&loki)
 }
 
 // loadKubeConfig fetches a given kubernetes configuration in the following order
@@ -114,10 +105,10 @@ func main() {
 func loadKubeConfig() *rest.Config {
 	var config *rest.Config
 	var err error
-	if kubeConfig != nil && *kubeConfig != "" {
-		flog := log.WithField("configFile", *kubeConfig)
+	if kubeConfigPath != nil && *kubeConfigPath != "" {
+		flog := log.WithField("kubeConfig", *kubeConfigPath)
 		flog.Info("Using command line supplied kube config")
-		config, err = clientcmd.BuildConfigFromFlags("", *kubeConfig)
+		config, err = clientcmd.BuildConfigFromFlags("", *kubeConfigPath)
 		if err != nil {
 			flog.WithError(err).Fatal("Can't load kube config file")
 		}
@@ -138,46 +129,30 @@ func loadKubeConfig() *rest.Config {
 	return config
 }
 
-// loadLokiConfig fetches a given kubernetes configuration in the following order
-// 1. path provided by the -lokiConfig CLI argument
-// 2. path provided by the LOKICONFIG environment variable
+// loadMainConfig fetches a given configuration in the following order
+// 1. path provided by the -config CLI argument
+// 2. path provided by the CONFIG environment variable
 // 3. default configuration
-func loadLokiConfig() *export.Config {
-	var config *export.Config
+func loadMainConfig() *config.Config {
+	var cfg *config.Config
 	var err error
-	if lokiConfig != nil && *lokiConfig != "" {
-		flog := log.WithField("configFile", *lokiConfig)
+	if mainConfigPath != nil && *mainConfigPath != "" {
+		flog := log.WithField("configFile", *mainConfigPath)
 		flog.Info("Using command line supplied loki config")
-		config, err = export.LoadConfig(*lokiConfig)
+		cfg, err = config.Load(*mainConfigPath)
 		if err != nil {
 			flog.WithError(err).Fatal("Can't load loki config file")
 		}
-	} else if lfgPath := os.Getenv("LOKICONFIG"); lfgPath != "" {
-		log.Info("Using environment LOKICONFIG")
-		config, err = export.LoadConfig(lfgPath)
+	} else if lfgPath := os.Getenv("CONFIG"); lfgPath != "" {
+		log.Info("Using environment CONFIG")
+		cfg, err = config.Load(lfgPath)
 		if err != nil {
-			log.WithError(err).WithField("lokiConfig", lfgPath).
-				Fatal("can't find provided LOKICONFIG env path")
+			log.WithError(err).WithField("config", lfgPath).
+				Fatal("can't find provided CONFIG env path")
 		}
 	} else {
-		log.Info("Using loki default configuration")
-		config = export.DefaultConfig()
+		log.Info("Using default configuration")
+		cfg = config.Default()
 	}
-	return config
-}
-
-func parseFieldMapping(in string) ([]reader.FieldMapping, error) {
-	var mapping []reader.FieldMapping
-	fields := strings.Split(in, ",")
-	for _, pair := range fields {
-		kv := strings.Split(pair, "=")
-		if len(kv) != 2 {
-			return mapping, fmt.Errorf("invalid fields mapping pair '%s' in '%s'", pair, in)
-		}
-		mapping = append(mapping, reader.FieldMapping{
-			FieldName: kv[0],
-			PrefixOut: kv[1],
-		})
-	}
-	return mapping, nil
+	return cfg
 }

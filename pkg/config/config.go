@@ -1,5 +1,5 @@
-// Package export provides configuration management functions
-package export
+// Package config provides configuration management functions
+package config
 
 import (
 	"errors"
@@ -7,22 +7,29 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"strings"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
-	"github.com/netobserv/loki-client-go/loki"
-	"github.com/netobserv/loki-client-go/pkg/backoff"
-	"github.com/netobserv/loki-client-go/pkg/urlutil"
 	promconf "github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
+	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
 
-var clog = logrus.WithField("module", "export/config")
+var clog = logrus.WithField("module", "config")
+
+const JSONFlagName = "json"
+const PBFlagName = "pb"
 
 type Config struct {
+	Listen      string            `yaml:"listen"`
+	StdinFormat string            `yaml:"stdinFormat"`
+	Loki        LokiConfig        `yaml:"loki"`
+	IPFields    map[string]string `yaml:"ipFields"`
+	PrintInput  bool              `yaml:"printInput"`
+	PrintOutput bool              `yaml:"printOutput"`
+}
+
+type LokiConfig struct {
 	URL            string                    `yaml:"url"`
 	TenantID       string                    `yaml:"tenantID"`
 	BatchWait      time.Duration             `yaml:"batchWait"`
@@ -34,8 +41,6 @@ type Config struct {
 	Labels         []string                  `yaml:"labels"`
 	StaticLabels   model.LabelSet            `yaml:"staticLabels"`
 	IgnoreList     []string                  `yaml:"ignoreList"`
-	PrintInput     bool                      `yaml:"printInput"`
-	PrintOutput    bool                      `yaml:"printOutput"`
 	ClientConfig   promconf.HTTPClientConfig `yaml:"clientConfig"`
 	TimestampLabel model.LabelName           `yaml:"timestampLabel"`
 	// TimestampScale provides the scale in time of the units from the timestamp
@@ -45,23 +50,23 @@ type Config struct {
 	TimestampScale time.Duration `yaml:"timestampScale"`
 }
 
-// LoadConfig loads the YAML configuration from the file path passed as argument
-func LoadConfig(filePath string) (*Config, error) {
+// Load loads the YAML configuration from the file path passed as argument
+func Load(filePath string) (*Config, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
-	return ReadConfig(file)
+	return Read(file)
 }
 
-// ReadConfig reads a YAML configuration from the io.Reader passed as argument
-func ReadConfig(in io.Reader) (*Config, error) {
+// Read reads a YAML configuration from the io.Reader passed as argument
+func Read(in io.Reader) (*Config, error) {
 	bytes, err := ioutil.ReadAll(in)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
-	c := DefaultConfig()
+	c := Default()
 	err = yaml.Unmarshal(bytes, &c)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
@@ -70,46 +75,31 @@ func ReadConfig(in io.Reader) (*Config, error) {
 	return c, nil
 }
 
-func DefaultConfig() *Config {
+func Default() *Config {
 	return &Config{
-		URL:        "http://loki:3100/",
-		BatchWait:  1 * time.Second,
-		BatchSize:  100 * 1024,
-		Timeout:    10 * time.Second,
-		MinBackoff: 1 * time.Second,
-		MaxBackoff: 5 * time.Minute,
-		MaxRetries: 10,
-		StaticLabels: model.LabelSet{
-			"app": "goflow2",
+		StdinFormat: JSONFlagName,
+		IPFields: map[string]string{
+			"SrcAddr": "Src",
+			"DstAddr": "Dst",
 		},
-		TimestampLabel: "TimeReceived",
-		TimestampScale: time.Second,
+		Loki: LokiConfig{
+			URL:        "http://loki:3100/",
+			BatchWait:  1 * time.Second,
+			BatchSize:  100 * 1024,
+			Timeout:    10 * time.Second,
+			MinBackoff: 1 * time.Second,
+			MaxBackoff: 5 * time.Minute,
+			MaxRetries: 10,
+			StaticLabels: model.LabelSet{
+				"app": "goflow-kube",
+			},
+			TimestampLabel: "TimeReceived",
+			TimestampScale: time.Second,
+		},
 	}
 }
 
-func (c *Config) buildLokiConfig() (loki.Config, error) {
-	cfg := loki.Config{
-		TenantID:  c.TenantID,
-		BatchWait: c.BatchWait,
-		BatchSize: c.BatchSize,
-		Timeout:   c.Timeout,
-		BackoffConfig: backoff.BackoffConfig{
-			MinBackoff: c.MinBackoff,
-			MaxBackoff: c.MaxBackoff,
-			MaxRetries: c.MaxRetries,
-		},
-		Client: c.ClientConfig,
-	}
-	var clientURL urlutil.URLValue
-	err := clientURL.Set(strings.TrimSuffix(c.URL, "/") + "/loki/api/v1/push")
-	if err != nil {
-		return cfg, fmt.Errorf("failed to parse client URL: %w", err)
-	}
-	cfg.URL = clientURL
-	return cfg, nil
-}
-
-func validate(c *Config) error {
+func (c *LokiConfig) Validate() error {
 	if c == nil {
 		return errors.New("you must provide a configuration")
 	}
