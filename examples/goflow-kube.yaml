@@ -15,30 +15,56 @@ spec:
       labels:
         app: goflow
     spec:
+      volumes:
+        - name: config-vol
+          configMap:
+            name: loki-exporter-config
       containers:
-      - command:
-        - /bin/sh
-        - -c
-        # - /goflow2 -loglevel "info" | /kube-enricher -loglevel "info" -sourceformat "json"
-        - /kube-enricher -loglevel "info" -stdinsourceformat "pb" -listen "netflow://:2055"
-        image: quay.io/netobserv/goflow2-kube:dev
-        imagePullPolicy: IfNotPresent
-        name: goflow
+        - command:
+            - /bin/sh
+            - -c
+            - /kube-enricher -listen netflow://:2055 -loglevel "trace" -lokiconfig /etc/loki-exporter/loki-exporter.yaml
+          image: quay.io/netobserv/goflow2-kube:dev
+          imagePullPolicy: IfNotPresent
+          name: goflow
+          resources:
+            limits:
+              memory: 512Mi
+              cpu: "1"
+          volumeMounts:
+              - mountPath: /etc/loki-exporter
+                name: config-vol
       serviceAccountName: goflow
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: goflow
+  name: goflow 
   namespace: default
   labels:
     app: goflow
 spec:
   ports:
-  - port: 2055
-    protocol: UDP
+    - port: 2055
+      protocol: UDP
   selector:
     app: goflow
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-exporter-config
+data:
+  loki-exporter.yaml: |
+    labels:
+      - SrcNamespace
+      - SrcWorkload
+      - DstNamespace
+      - DstWorkload
+    ignoreList:
+      - NextHop
+      - NextHopAS
+    printInput: true
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -59,9 +85,9 @@ roleRef:
   kind: ClusterRole
   name: goflow
 subjects:
-- kind: ServiceAccount
-  name: goflow
-  namespace: default
+  - kind: ServiceAccount
+    name: goflow
+    namespace: default
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -70,14 +96,14 @@ metadata:
     app: goflow
   name: goflow
 rules:
-- apiGroups:
-  - ""
-  - "apps"
-  resources:
-  - pods
-  - replicasets
-  - services
-  verbs:
-  - list
-  - get
-  - watch
+  - apiGroups:
+      - ""
+      - "apps"
+    resources:
+      - pods
+      - replicasets
+      - services
+    verbs:
+      - list
+      - get
+      - watch

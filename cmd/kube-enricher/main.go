@@ -18,6 +18,7 @@ import (
 	pbFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/pb"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/reader"
 
+	"github.com/netobserv/goflow2-kube-enricher/pkg/export"
 	"github.com/sirupsen/logrus"
 	"k8s.io/client-go/rest"
 )
@@ -32,6 +33,7 @@ var (
 	listenAddress     = flag.String("listen", "", "listen address, if empty, will listen to stdin")
 	fieldsMapping     = flag.String("mapping", "SrcAddr=Src,DstAddr=Dst", "Mapping of fields containing IPs to prefixes for new fields")
 	kubeConfig        = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+	lokiConfig        = flag.String("lokiconfig", "", "absolute path to the lokiconfig file")
 	logLevel          = flag.String("loglevel", "info", "Log level")
 	versionFlag       = flag.Bool("v", false, "Print version")
 	log               = logrus.WithField("module", app)
@@ -94,9 +96,15 @@ func main() {
 		log.Fatal(err)
 	}
 
+	log.Info("Creating loki...")
+	loki, err := export.NewLoki(loadLokiConfig())
+	if err != nil {
+		log.WithError(err).Fatal("Can't load Loki exporter")
+	}
+
 	r := reader.NewReader(in, log, mapping, clientset)
 	log.Info("Starting reader...")
-	r.Start()
+	r.Start(loki)
 }
 
 // loadKubeConfig fetches a given kubernetes configuration in the following order
@@ -107,11 +115,11 @@ func loadKubeConfig() *rest.Config {
 	var config *rest.Config
 	var err error
 	if kubeConfig != nil && *kubeConfig != "" {
-		log.Info("Using command line supplied kube config")
+		flog := log.WithField("configFile", *kubeConfig)
+		flog.Info("Using command line supplied kube config")
 		config, err = clientcmd.BuildConfigFromFlags("", *kubeConfig)
 		if err != nil {
-			log.WithError(err).WithField("kubeConfig", *kubeConfig).
-				Fatal("can't find provided kubeConfig param path")
+			flog.WithError(err).Fatal("Can't load kube config file")
 		}
 	} else if kfgPath := os.Getenv("KUBECONFIG"); kfgPath != "" {
 		log.Info("Using environment KUBECONFIG")
@@ -126,6 +134,34 @@ func loadKubeConfig() *rest.Config {
 		if err != nil {
 			log.WithError(err).Fatal("can't load in-cluster REST config")
 		}
+	}
+	return config
+}
+
+// loadLokiConfig fetches a given kubernetes configuration in the following order
+// 1. path provided by the -lokiConfig CLI argument
+// 2. path provided by the LOKICONFIG environment variable
+// 3. default configuration
+func loadLokiConfig() *export.Config {
+	var config *export.Config
+	var err error
+	if lokiConfig != nil && *lokiConfig != "" {
+		flog := log.WithField("configFile", *lokiConfig)
+		flog.Info("Using command line supplied loki config")
+		config, err = export.LoadConfig(*lokiConfig)
+		if err != nil {
+			flog.WithError(err).Fatal("Can't load loki config file")
+		}
+	} else if lfgPath := os.Getenv("LOKICONFIG"); lfgPath != "" {
+		log.Info("Using environment LOKICONFIG")
+		config, err = export.LoadConfig(lfgPath)
+		if err != nil {
+			log.WithError(err).WithField("lokiConfig", lfgPath).
+				Fatal("can't find provided LOKICONFIG env path")
+		}
+	} else {
+		log.Info("Using loki default configuration")
+		config = export.DefaultConfig()
 	}
 	return config
 }

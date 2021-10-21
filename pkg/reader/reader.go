@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/netobserv/goflow2-kube-enricher/pkg/export"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/format"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/meta"
 
@@ -43,7 +44,7 @@ func NewReader(format format.Format, log *logrus.Entry, mapping []FieldMapping, 
 	}
 }
 
-func (r *Reader) Start() {
+func (r *Reader) Start(loki export.Loki) {
 	for {
 		record, err := r.format.Next()
 		if err != nil {
@@ -53,12 +54,7 @@ func (r *Reader) Start() {
 		if record == nil {
 			return
 		}
-		enriched, err := r.enrich(record)
-		if err != nil {
-			r.log.Error(err)
-		} else {
-			fmt.Println(string(enriched))
-		}
+		r.enrich(record, loki)
 	}
 }
 
@@ -72,7 +68,7 @@ var ownerNameFunc = func(owners interface{}, idx int) string {
 	return owner.Kind + "/" + owner.Name
 }
 
-func (r *Reader) enrich(record map[string]interface{}) ([]byte, error) {
+func (r *Reader) enrich(record map[string]interface{}, loki export.Loki) map[string]interface{} {
 	for _, fieldMap := range r.mapping {
 		val, ok := record[fieldMap.FieldName]
 		if !ok {
@@ -92,7 +88,15 @@ func (r *Reader) enrich(record map[string]interface{}) ([]byte, error) {
 		}
 	}
 
-	return json.Marshal(record)
+	if err := loki.ProcessJsonRecord(record); err != nil {
+		r.log.Error(err)
+	}
+
+	return record
+}
+
+func (r *Reader) enrichMarshal(record map[string]interface{}, loki export.Loki) ([]byte, error) {
+	return json.Marshal(r.enrich(record, loki))
 }
 
 func (r *Reader) enrichService(ip string, record map[string]interface{}, fieldMap FieldMapping) {

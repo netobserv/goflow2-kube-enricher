@@ -93,6 +93,16 @@ make ovnk-deploy
 
 Finally check goflow's logs for output
 
+#### Legacy Netflow (v5)
+
+Similarly:
+
+```bash
+kubectl apply -f ./examples/goflow-kube-loki-nf5.yaml
+GF_IP=`kubectl get svc goflow-leg -ojsonpath='{.spec.clusterIP}'` && echo $GF_IP
+kubectl set env daemonset/ovnkube-node -c ovnkube-node -n ovn-kubernetes OVN_NETFLOW_TARGETS="$GF_IP:2056"
+```
+
 ### Run on OpenShift with OVNKubernetes network provider
 
 - Pre-requisite: make sure you have a running OpenShift cluster (4.8 at least) with `OVNKubernetes` set as the network provider.
@@ -109,3 +119,31 @@ or simply:
 ```bash
 make cno-deploy
 ```
+
+### Loki quickstart (helm)
+
+```bash
+helm upgrade --install loki grafana/loki-stack --set promtail.enabled=false
+helm install loki-grafana grafana/grafana
+kubectl get secret loki-grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
+kubectl port-forward svc/loki-grafana 3000:80
+```
+
+Open http://localhost:3000/
+Login with admin + printed password
+Add datasource => Loki =>
+http://loki:3100/
+
+Example of queries:
+
+- View raw logs:
+
+`{app="goflow2"}`
+
+- Top 10 sources by volumetry (1 min-rate):
+
+`topk(10, (sum by(SrcWorkload,SrcNamespace) ( rate({ app="goflow2" } | json | __error__="" | unwrap Bytes [1m]) )))`
+
+- Top 10 destinations for a given source (1 min-rate):
+
+`topk(10, (sum by(DstWorkload,DstNamespace) ( rate({ app="goflow2",SrcNamespace="default",SrcWorkload="goflow" } | json | __error__="" | unwrap Bytes [1m]) )))`

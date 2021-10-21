@@ -3,6 +3,7 @@ package reader
 import (
 	"testing"
 
+	"github.com/netobserv/goflow2-kube-enricher/pkg/export"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/internal/mock"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -39,7 +40,7 @@ func TestEnrichNoMatch(t *testing.T) {
 		"DstAddr": "10.0.0.2",
 	}
 
-	jsonBytes, err := r.enrich(records)
+	jsonBytes, err := r.enrichMarshal(records, export.NewEmptyLoki())
 
 	assert.Nil(err)
 	assert.NotEmpty(jsonBytes)
@@ -66,7 +67,7 @@ func TestEnrichSinglePods(t *testing.T) {
 		"DstAddr": "10.0.0.2",
 	}
 
-	jsonBytes, err := r.enrich(records)
+	jsonBytes, err := r.enrichMarshal(records, export.NewEmptyLoki())
 
 	assert.Nil(err)
 	assert.NotEmpty(jsonBytes)
@@ -98,7 +99,7 @@ func TestEnrichDeploymentPods(t *testing.T) {
 		"DstAddr": "10.0.0.2",
 	}
 
-	jsonBytes, err := r.enrich(records)
+	jsonBytes, err := r.enrichMarshal(records, export.NewEmptyLoki())
 
 	assert.Nil(err)
 	assert.NotEmpty(jsonBytes)
@@ -130,7 +131,7 @@ func TestEnrichPodAndService(t *testing.T) {
 		"DstAddr": "10.0.0.2",
 	}
 
-	jsonBytes, err := r.enrich(records)
+	jsonBytes, err := r.enrichMarshal(records, export.NewEmptyLoki())
 
 	assert.Nil(err)
 	assert.NotEmpty(jsonBytes)
