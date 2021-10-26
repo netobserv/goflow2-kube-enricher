@@ -1,3 +1,4 @@
+// Package json defines a json Format, implementing Format interface for input
 package json
 
 import (
@@ -6,17 +7,17 @@ import (
 	"io"
 )
 
-type JsonFormat struct {
+type Format struct {
 	scanner *bufio.Scanner
 }
 
-func NewScanner(in io.Reader) *JsonFormat {
-	input := JsonFormat{}
+func NewScanner(in io.Reader) *Format {
+	input := Format{}
 	input.scanner = bufio.NewScanner(in)
 	return &input
 }
 
-func (j *JsonFormat) Next() (map[string]interface{}, error) {
+func (j *Format) Next() (map[string]interface{}, error) {
 	if j.scanner.Scan() {
 		raw := j.scanner.Bytes()
 		var record map[string]interface{}

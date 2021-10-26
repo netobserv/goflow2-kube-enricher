@@ -2,21 +2,21 @@
 package export
 
 import (
-	"bufio"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"strings"
 	"time"
 
 	logadapter "github.com/go-kit/kit/log/logrus"
-
 	jsoniter "github.com/json-iterator/go"
 	"github.com/netobserv/loki-client-go/loki"
+	"github.com/netobserv/loki-client-go/pkg/backoff"
+	"github.com/netobserv/loki-client-go/pkg/urlutil"
 	"github.com/prometheus/common/model"
 	"github.com/sirupsen/logrus"
+
+	"github.com/netobserv/goflow2-kube-enricher/pkg/config"
 )
 
 var (
@@ -31,7 +31,7 @@ type emitter interface {
 
 // Loki record exporter
 type Loki struct {
-	config     Config
+	config     config.LokiConfig
 	lokiConfig loki.Config
 	emitter    emitter
 	timeNow    func() time.Time
@@ -39,11 +39,11 @@ type Loki struct {
 }
 
 // NewLoki creates a Loki flow exporter from a given configuration
-func NewLoki(cfg *Config) (Loki, error) {
-	if err := validate(cfg); err != nil {
+func NewLoki(cfg *config.LokiConfig) (Loki, error) {
+	if err := cfg.Validate(); err != nil {
 		return NewEmptyLoki(), fmt.Errorf("the provided config is not valid: %w", err)
 	}
-	lcfg, err := cfg.buildLokiConfig()
+	lcfg, err := buildLokiConfig(cfg)
 	if err != nil {
 		return NewEmptyLoki(), err
 	}
@@ -70,34 +70,29 @@ func (l *Loki) IsReady() bool {
 	return l.ready
 }
 
-// Process the flows provided as JSON lines by the input io.Reader until the end of the file
-func (l *Loki) Process(in io.Reader) error {
-	scanner := bufio.NewScanner(in)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if l.config.PrintInput {
-			fmt.Println(string(line))
-		}
-		err := l.processRecord(line)
-		if err != nil {
-			log.Error(err)
-		}
+func buildLokiConfig(c *config.LokiConfig) (loki.Config, error) {
+	cfg := loki.Config{
+		TenantID:  c.TenantID,
+		BatchWait: c.BatchWait,
+		BatchSize: c.BatchSize,
+		Timeout:   c.Timeout,
+		BackoffConfig: backoff.BackoffConfig{
+			MinBackoff: c.MinBackoff,
+			MaxBackoff: c.MaxBackoff,
+			MaxRetries: c.MaxRetries,
+		},
+		Client: c.ClientConfig,
 	}
-	return scanner.Err()
-}
-
-func (l *Loki) processRecord(rawRecord []byte) error {
-	// TODO: allow protobuf input
-	var record map[string]interface{}
-	err := json.Unmarshal(rawRecord, &record)
+	var clientURL urlutil.URLValue
+	err := clientURL.Set(strings.TrimSuffix(c.URL, "/") + "/loki/api/v1/push")
 	if err != nil {
-		return err
+		return cfg, fmt.Errorf("failed to parse client URL: %w", err)
 	}
-
-	return l.ProcessJsonRecord(record)
+	cfg.URL = clientURL
+	return cfg, nil
 }
 
-func (l *Loki) ProcessJsonRecord(record map[string]interface{}) error {
+func (l *Loki) ProcessRecord(record map[string]interface{}) error {
 	if !l.IsReady() {
 		return errors.New("Loki is not ready")
 	}
@@ -124,9 +119,6 @@ func (l *Loki) ProcessJsonRecord(record map[string]interface{}) error {
 	if err != nil {
 		return err
 	}
-	if l.config.PrintOutput {
-		fmt.Println(string(js))
-	}
 	return l.emitter.Handle(labels, timestamp, string(js))
 }
 
@@ -143,7 +135,7 @@ func (l *Loki) extractTimestamp(record map[string]interface{}) time.Time {
 	ft, ok := getFloat64(timestamp)
 	if !ok {
 		log.WithField(string(l.config.TimestampLabel), timestamp).
-			Warnf("Invalid timestamp found: float64 expected but got %T. Using local time", ft)
+			Warnf("Invalid timestamp found: float64 expected but got %T. Using local time", timestamp)
 		return l.timeNow()
 	}
 	if ft == 0 {
@@ -191,6 +183,8 @@ func getFloat64(timestamp interface{}) (ft float64, ok bool) {
 	case uint64:
 		return float64(i), true
 	case uint32:
+		return float64(i), true
+	case int:
 		return float64(i), true
 	default:
 		log.Warnf("Type %T is not implemented for float64 conversion\n", i)

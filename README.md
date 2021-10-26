@@ -1,10 +1,14 @@
 # goflow2-kube-enricher
 
-Note: this is currently a prototype, not suitable for a production usage. Some improvements must be done such as adding a cache (kube informers) and supporting protobuf i/o.
-
 ## Description
 
-This enricher adds kubernetes data to the output of `goflow2` based, by default, on the source and destination addresses of each record.
+This enricher adds kubernetes data to the output of `goflow2` based, by default, on the source and destination addresses of each record. It then exports the data to Loki.
+
+### Configuration
+
+A `ConfigMap` can be set up and passed as command line argument via `-config /path/to/config`, see the [YAML example](./examples/goflow-kube.yaml).
+
+Configurable fields are:
 
 The fields mapping can be overriden for more general purpose using the `-mapping` option. The default is `SrcAddr=Src,DstAddr=Dst`. Keys refer to the fields to look for in goflow2 output and values refer to the prefix to use in created fields. For instance, it could be possible to process the `NextHop` field the same way with `-mapping "SrcAddr=Src,DstAddr=Dst,NextHop=Nxt"`
 
@@ -81,7 +85,7 @@ Then:
 
 ```bash
 kubectl apply -f ./examples/goflow-kube.yaml
-GF_IP=`kubectl get svc goflow -ojsonpath='{.spec.clusterIP}'` && echo $GF_IP
+GF_IP=`kubectl get svc goflow-kube -ojsonpath='{.spec.clusterIP}'` && echo $GF_IP
 kubectl set env daemonset/ovnkube-node -c ovnkube-node -n ovn-kubernetes OVN_IPFIX_TARGETS="$GF_IP:2055"
 ```
 
@@ -111,7 +115,7 @@ In OpenShift, a difference with the upstream `ovn-kubernetes` is that the flows 
 
 ```bash
 oc apply -f ./examples/goflow-kube.yaml
-GF_IP=`oc get svc goflow -ojsonpath='{.spec.clusterIP}'` && echo $GF_IP
+GF_IP=`oc get svc goflow-kube -ojsonpath='{.spec.clusterIP}'` && echo $GF_IP
 oc patch networks.operator.openshift.io cluster --type='json' -p "$(sed -e "s/GF_IP/$GF_IP/" examples/net-cluster-patch.json)"
 ```
 or simply:

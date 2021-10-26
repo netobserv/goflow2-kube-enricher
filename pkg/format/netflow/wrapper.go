@@ -1,12 +1,13 @@
 package netflow
 
 import (
-	pbFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/pb"
 	goflowpb "github.com/netsampler/goflow2/pb"
 	"google.golang.org/protobuf/proto"
+
+	pbFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/pb"
 )
 
-// This is en implementation of the goflow2 transport interface
+// TransportWrapper is an implementation of the goflow2 transport interface
 type TransportWrapper struct {
 	c chan map[string]interface{}
 }

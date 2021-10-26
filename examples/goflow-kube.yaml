@@ -2,99 +2,101 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    app: goflow
-  name: goflow
+    app: goflow-kube
+  name: goflow-kube
   namespace: default
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: goflow
+      app: goflow-kube
   template:
     metadata:
       labels:
-        app: goflow
+        app: goflow-kube
     spec:
       volumes:
         - name: config-vol
           configMap:
-            name: loki-exporter-config
+            name: goflow-kube-config
       containers:
         - command:
             - /bin/sh
             - -c
-            - /kube-enricher -listen netflow://:2055 -loglevel "trace" -lokiconfig /etc/loki-exporter/loki-exporter.yaml
-          image: quay.io/netobserv/goflow2-kube:dev
+            - /goflow-kube -loglevel "info" -config /etc/goflow-kube/config.yaml
+          image: quay.io/netobserv/goflow-kube:dev
           imagePullPolicy: IfNotPresent
-          name: goflow
+          name: goflow-kube
           resources:
             limits:
               memory: 512Mi
               cpu: "1"
           volumeMounts:
-              - mountPath: /etc/loki-exporter
+              - mountPath: /etc/goflow-kube
                 name: config-vol
-      serviceAccountName: goflow
+      serviceAccountName: goflow-kube
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: goflow 
+  name: goflow-kube
   namespace: default
   labels:
-    app: goflow
+    app: goflow-kube
 spec:
   ports:
     - port: 2055
       protocol: UDP
   selector:
-    app: goflow
+    app: goflow-kube
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: loki-exporter-config
+  name: goflow-kube-config
 data:
-  loki-exporter.yaml: |
-    labels:
-      - SrcNamespace
-      - SrcWorkload
-      - DstNamespace
-      - DstWorkload
-    ignoreList:
-      - NextHop
-      - NextHopAS
-    printInput: true
+  config.yaml: |
+    listen: netflow://:2055
+    loki:
+      labels:
+        - SrcNamespace
+        - SrcWorkload
+        - DstNamespace
+        - DstWorkload
+      ignoreList:
+        - NextHop
+        - NextHopAS
+    printOutput: true
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:
-    app: goflow
-  name: goflow
+    app: goflow-kube
+  name: goflow-kube
   namespace: default
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   labels:
-    app: goflow
-  name: goflow
+    app: goflow-kube
+  name: goflow-kube
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: goflow
+  name: goflow-kube
 subjects:
   - kind: ServiceAccount
-    name: goflow
+    name: goflow-kube
     namespace: default
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:
-    app: goflow
-  name: goflow
+    app: goflow-kube
+  name: goflow-kube
 rules:
   - apiGroups:
       - ""
@@ -107,3 +109,4 @@ rules:
       - list
       - get
       - watch
+

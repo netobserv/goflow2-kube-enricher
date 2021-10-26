@@ -1,3 +1,4 @@
+// Package netflow implements the Format interface for raw netflow input (not reencoded)
 package netflow
 
 import (
@@ -5,6 +6,8 @@ import (
 	"log"
 
 	goflow2Format "github.com/netsampler/goflow2/format"
+
+	// this blank import triggers pb registration via init
 	_ "github.com/netsampler/goflow2/format/protobuf"
 	"github.com/netsampler/goflow2/utils"
 	"github.com/sirupsen/logrus"
@@ -16,7 +19,7 @@ type Driver struct {
 	in chan map[string]interface{}
 }
 
-// Start a new go routine to handle netflow connections
+// StartDriver starts a new go routine to handle netflow connections
 func StartDriver(ctx context.Context, hostname string, port int) *Driver {
 	gf := Driver{}
 	gf.in = make(chan map[string]interface{}, channelSize)

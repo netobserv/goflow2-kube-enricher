@@ -1,4 +1,3 @@
-# TODO: agree with the team
 linters:
   enable:
     - deadcode
@@ -14,6 +13,7 @@ linters:
     - govet
     - ineffassign
     - revive
+    - staticcheck
     - structcheck
     - stylecheck
     - typecheck
@@ -29,3 +29,6 @@ linters-settings:
       - rangeValCopy
       - indexAlloc
       - deprecatedComment
+  cyclop:
+    max-complexity: 15
+

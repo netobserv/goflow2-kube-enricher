@@ -1,3 +1,4 @@
+// Package meta provides access to kubernetes objects via informers
 package meta
 
 import (
@@ -6,15 +7,12 @@ import (
 	"strings"
 	"time"
 
-	appsv1 "k8s.io/api/apps/v1"
-
-	corev1 "k8s.io/api/core/v1"
-
-	"k8s.io/client-go/informers"
-	"k8s.io/client-go/tools/cache"
-
 	"github.com/sirupsen/logrus"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
 )
 
 const (

@@ -1,3 +1,4 @@
+// Package reader reads input flows and proceeds with kube enrichment
 package reader
 
 import (
@@ -5,24 +6,25 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/netobserv/goflow2-kube-enricher/pkg/export"
-	"github.com/netobserv/goflow2-kube-enricher/pkg/format"
-	"github.com/netobserv/goflow2-kube-enricher/pkg/meta"
-
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/netobserv/goflow2-kube-enricher/pkg/config"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/export"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/format"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/meta"
 )
 
 type Reader struct {
 	log       *logrus.Entry
 	informers meta.InformersInterface
-	mapping   []FieldMapping
+	config    *config.Config
 	format    format.Format
 }
 
-func NewReader(format format.Format, log *logrus.Entry, mapping []FieldMapping, clientset *kubernetes.Clientset) Reader {
+func NewReader(format format.Format, log *logrus.Entry, cfg *config.Config, clientset *kubernetes.Clientset) Reader {
 	informers := meta.NewInformers(clientset)
 
 	stopCh := make(chan struct{})
@@ -39,12 +41,12 @@ func NewReader(format format.Format, log *logrus.Entry, mapping []FieldMapping, 
 	return Reader{
 		log:       log,
 		informers: &informers,
-		mapping:   mapping,
+		config:    cfg,
 		format:    format,
 	}
 }
 
-func (r *Reader) Start(loki export.Loki) {
+func (r *Reader) Start(loki *export.Loki) {
 	for {
 		record, err := r.format.Next()
 		if err != nil {
@@ -52,15 +54,14 @@ func (r *Reader) Start(loki export.Loki) {
 			return
 		}
 		if record == nil {
+			r.log.Error("nil record")
 			return
 		}
-		r.enrich(record, loki)
+		err = r.enrich(record, loki)
+		if err != nil {
+			r.log.Error(err)
+		}
 	}
-}
-
-type FieldMapping struct {
-	FieldName string
-	PrefixOut string
 }
 
 var ownerNameFunc = func(owners interface{}, idx int) string {
@@ -68,47 +69,55 @@ var ownerNameFunc = func(owners interface{}, idx int) string {
 	return owner.Kind + "/" + owner.Name
 }
 
-func (r *Reader) enrich(record map[string]interface{}, loki export.Loki) map[string]interface{} {
-	for _, fieldMap := range r.mapping {
-		val, ok := record[fieldMap.FieldName]
+func (r *Reader) enrich(record map[string]interface{}, loki *export.Loki) error {
+	if r.config.PrintInput {
+		bs, _ := json.Marshal(record)
+		fmt.Println(string(bs))
+	}
+	for ipField, prefixOut := range r.config.IPFields {
+		val, ok := record[ipField]
 		if !ok {
-			r.log.Infof("Field %s not found in record", fieldMap.FieldName)
+			r.log.Infof("Field %s not found in record", ipField)
 			continue
 		}
 		ip, ok := val.(string)
 		if !ok {
-			r.log.Warnf("String expected for field %s value %v", fieldMap.FieldName, val)
+			r.log.Warnf("String expected for field %s value %v", ipField, val)
 			continue
 		}
 		if pod := r.informers.PodByIP(ip); pod != nil {
-			r.enrichPod(record, fieldMap, pod)
+			r.enrichPod(record, prefixOut, pod)
 		} else {
 			// If there is no Pod for such IP, we try searching for a service
-			r.enrichService(ip, record, fieldMap)
+			r.enrichService(ip, record, prefixOut)
 		}
 	}
 
-	if err := loki.ProcessJsonRecord(record); err != nil {
-		r.log.Error(err)
+	// Printing output before loki processing, because Loki will remove
+	// indexed fields from the records hence making them hidden in output
+	if r.config.PrintOutput {
+		bs, _ := json.Marshal(record)
+		fmt.Println(string(bs))
 	}
 
-	return record
+	var err error
+	if loki != nil {
+		err = loki.ProcessRecord(record)
+	}
+
+	return err
 }
 
-func (r *Reader) enrichMarshal(record map[string]interface{}, loki export.Loki) ([]byte, error) {
-	return json.Marshal(r.enrich(record, loki))
-}
-
-func (r *Reader) enrichService(ip string, record map[string]interface{}, fieldMap FieldMapping) {
+func (r *Reader) enrichService(ip string, record map[string]interface{}, prefixOut string) {
 	if svc := r.informers.ServiceByIP(ip); svc != nil {
-		fillWorkloadRecord(record, fieldMap.PrefixOut, "Service", svc.Name, svc.Namespace)
+		fillWorkloadRecord(record, prefixOut, "Service", svc.Name, svc.Namespace)
 	} else {
 		r.log.Warnf("Failed to get Service [ip=%v]", ip)
 	}
 }
 
-func (r *Reader) enrichPod(record map[string]interface{}, fieldMap FieldMapping, pod *v1.Pod) {
-	fillPodRecord(record, fieldMap.PrefixOut, pod)
+func (r *Reader) enrichPod(record map[string]interface{}, prefixOut string, pod *v1.Pod) {
+	fillPodRecord(record, prefixOut, pod)
 	var warnings []string
 	if len(pod.OwnerReferences) > 0 {
 		warnings = r.checkTooMany(warnings, "owners", "pod "+pod.Name, pod.OwnerReferences, len(pod.OwnerReferences), ownerNameFunc)
@@ -124,13 +133,13 @@ func (r *Reader) enrichPod(record map[string]interface{}, fieldMap FieldMapping,
 				r.log.Warnf("Failed to get ReplicaSet [ns=%s,name=%s]", pod.Namespace, ref.Name)
 			}
 		}
-		fillWorkloadRecord(record, fieldMap.PrefixOut, ref.Kind, ref.Name, "")
+		fillWorkloadRecord(record, prefixOut, ref.Kind, ref.Name, "")
 	} else {
 		// Consider a pod without owner as self-owned
-		fillWorkloadRecord(record, fieldMap.PrefixOut, "Pod", pod.Name, "")
+		fillWorkloadRecord(record, prefixOut, "Pod", pod.Name, "")
 	}
 	if len(warnings) > 0 {
-		record[fieldMap.PrefixOut+"Warn"] = strings.Join(warnings, "; ")
+		record[prefixOut+"Warn"] = strings.Join(warnings, "; ")
 	}
 }
 

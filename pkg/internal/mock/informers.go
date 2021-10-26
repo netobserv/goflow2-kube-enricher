@@ -1,11 +1,13 @@
+// Package mock provides some kubernetes-related mocks for testing
 package mock
 
 import (
-	"github.com/netobserv/goflow2-kube-enricher/pkg/meta"
 	"github.com/stretchr/testify/mock"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/netobserv/goflow2-kube-enricher/pkg/meta"
 )
 
 type InformersMock struct {
