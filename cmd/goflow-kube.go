@@ -53,10 +53,10 @@ func main() {
 	log.Infof("Starting %s at log level %s", appVersion, *logLevel)
 
 	cfg := loadMainConfig()
-	log.Info("Creating loki...")
+	log.Info("Creating loki exporter...")
 	loki, err := export.NewLoki(&cfg.Loki)
 	if err != nil {
-		log.WithError(err).Fatal("Can't load Loki exporter")
+		log.WithError(err).Fatal("Can't create Loki exporter")
 	}
 
 	var in format.Format
@@ -138,10 +138,10 @@ func loadMainConfig() *config.Config {
 	var err error
 	if mainConfigPath != nil && *mainConfigPath != "" {
 		flog := log.WithField("configFile", *mainConfigPath)
-		flog.Info("Using command line supplied loki config")
+		flog.Info("Using command line supplied config")
 		cfg, err = config.Load(*mainConfigPath)
 		if err != nil {
-			flog.WithError(err).Fatal("Can't load loki config file")
+			flog.WithError(err).Fatal("Can't load config file")
 		}
 	} else if lfgPath := os.Getenv("CONFIG"); lfgPath != "" {
 		log.Info("Using environment CONFIG")
