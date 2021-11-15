@@ -4,6 +4,8 @@
 
 This enricher adds kubernetes data to the output of `goflow2` based, by default, on the source and destination addresses of each record. It then exports the data to Loki.
 
+Check overall documentation on [netobserv/documents](https://github.com/netobserv/documents) repository
+
 ### Configuration
 
 A `ConfigMap` can be set up and passed as command line argument via `-config /path/to/config`, see the [YAML example](./examples/goflow-kube.yaml).
@@ -95,8 +97,6 @@ or simply:
 make ovnk-deploy
 ```
 
-Finally check goflow's logs for output
-
 #### Legacy Netflow (v5)
 
 Similarly:
@@ -124,30 +124,11 @@ or simply:
 make cno-deploy
 ```
 
-### Loki quickstart (helm)
+### App label and logs
+You can use `app=goflow-kube` label to retreive any components deployed. 
 
-```bash
-helm upgrade --install loki grafana/loki-stack --set promtail.enabled=false
-helm install loki-grafana grafana/grafana
-kubectl get secret loki-grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
-kubectl port-forward svc/loki-grafana 3000:80
-```
+Show all components:
+`kubectl get all -l app=goflow-kube`
 
-Open http://localhost:3000/
-Login with admin + printed password
-Add datasource => Loki =>
-http://loki:3100/
-
-Example of queries:
-
-- View raw logs:
-
-`{app="goflow2"}`
-
-- Top 10 sources by volumetry (1 min-rate):
-
-`topk(10, (sum by(SrcWorkload,SrcNamespace) ( rate({ app="goflow2" } | json | __error__="" | unwrap Bytes [1m]) )))`
-
-- Top 10 destinations for a given source (1 min-rate):
-
-`topk(10, (sum by(DstWorkload,DstNamespace) ( rate({ app="goflow2",SrcNamespace="default",SrcWorkload="goflow" } | json | __error__="" | unwrap Bytes [1m]) )))`
+Get pod logs:
+`kubectl logs -l app=goflow-kube`
