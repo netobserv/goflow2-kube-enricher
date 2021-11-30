@@ -24,7 +24,7 @@ spec:
             - /bin/sh
             - -c
             - /goflow-kube -loglevel "info" -config /etc/goflow-kube/config.yaml
-          image: quay.io/netobserv/goflow-kube:dev
+          image: quay.io/netobserv/goflow2-kube:main
           imagePullPolicy: IfNotPresent
           name: goflow-kube
           resources:
