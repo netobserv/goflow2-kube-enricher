@@ -102,7 +102,7 @@ make ovnk-deploy
 Similarly:
 
 ```bash
-kubectl apply -f ./examples/goflow-kube-legacy.yaml.yaml
+kubectl apply -f ./examples/goflow-kube-legacy.yaml
 GF_IP=`kubectl get svc goflow-kube-legacy -ojsonpath='{.spec.clusterIP}'` && echo $GF_IP
 kubectl set env daemonset/ovnkube-node -c ovnkube-node -n ovn-kubernetes OVN_NETFLOW_TARGETS="$GF_IP:2056"
 ```
