@@ -20,7 +20,7 @@ type Driver struct {
 }
 
 // StartDriver starts a new go routine to handle netflow connections
-func StartDriver(ctx context.Context, hostname string, port int) *Driver {
+func StartDriver(ctx context.Context, hostname string, port int, legacy bool) *Driver {
 	gf := Driver{}
 	gf.in = make(chan map[string]interface{}, channelSize)
 
@@ -32,12 +32,21 @@ func StartDriver(ctx context.Context, hostname string, port int) *Driver {
 			log.Fatal(err)
 		}
 
-		sNF := &utils.StateNetFlow{
-			Format:    formatter,
-			Transport: transporter,
-			Logger:    logrus.StandardLogger(),
+		if legacy {
+			sNFL := &utils.StateNFLegacy{
+				Format:    formatter,
+				Transport: transporter,
+				Logger:    logrus.StandardLogger(),
+			}
+			err = sNFL.FlowRoutine(1, hostname, port, false)
+		} else {
+			sNF := &utils.StateNetFlow{
+				Format:    formatter,
+				Transport: transporter,
+				Logger:    logrus.StandardLogger(),
+			}
+			err = sNF.FlowRoutine(1, hostname, port, false)
 		}
-		err = sNF.FlowRoutine(1, hostname, port, false)
 		log.Fatal(err)
 
 	}()
