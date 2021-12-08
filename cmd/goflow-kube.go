@@ -23,6 +23,7 @@ import (
 )
 
 const netflowScheme = "netflow"
+const legacyScheme = "nfl"
 
 var (
 	version        = "unknown"
@@ -74,7 +75,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		if listenAddrURL.Scheme == netflowScheme {
+		if listenAddrURL.Scheme == netflowScheme || listenAddrURL.Scheme == legacyScheme {
 			hostname := listenAddrURL.Hostname()
 			port, err := strconv.ParseUint(listenAddrURL.Port(), 10, 64)
 			if err != nil {
@@ -82,7 +83,7 @@ func main() {
 			}
 			log.Infof("Start listening on %s", cfg.Listen)
 			ctx := context.Background()
-			in = nfFormat.StartDriver(ctx, hostname, int(port))
+			in = nfFormat.StartDriver(ctx, hostname, int(port), listenAddrURL.Scheme == legacyScheme)
 		} else {
 			log.Fatal("Unknown listening protocol")
 		}
