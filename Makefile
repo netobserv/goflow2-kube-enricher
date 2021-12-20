@@ -1,4 +1,4 @@
-IMAGE ?= quay.io/netobserv/goflow-kube
+IMAGE ?= quay.io/netobserv/goflow2-kube
 VERSION ?= $(shell git describe --long HEAD)
 GOLANGCI_LINT_VERSION = v1.42.1
 COVERPROFILE = coverage.out
@@ -55,13 +55,13 @@ push:
 
 .PHONY: ovnk-deploy
 ovnk-deploy:
-	sed -e 's~quay\.io/netobserv/goflow-kube:dev~$(IMAGE):$(VERSION)~' ./examples/goflow-kube.yaml | kubectl apply -f - && \
+	sed -e 's~quay\.io/netobserv/goflow2-kube:main~$(IMAGE):$(VERSION)~' ./examples/goflow-kube.yaml | kubectl apply -f - && \
 	GF_IP=`kubectl get svc goflow-kube -ojsonpath='{.spec.clusterIP}'` && echo "Goflow IP: $$GF_IP" && \
 	kubectl set env daemonset/ovnkube-node -c ovnkube-node -n ovn-kubernetes OVN_IPFIX_TARGETS="$$GF_IP:2055"
 
 .PHONY: cno-deploy
 cno-deploy:
-	sed -e 's~quay\.io/netobserv/goflow-kube:dev~$(IMAGE):$(VERSION)~' ./examples/goflow-kube.yaml | oc apply -f - && \
+	sed -e 's~quay\.io/netobserv/goflow2-kube:main~$(IMAGE):$(VERSION)~' ./examples/goflow-kube.yaml | oc apply -f - && \
 	GF_IP=`oc get svc goflow-kube -ojsonpath='{.spec.clusterIP}'` && "Goflow IP: $$GF_IP" && \
 	oc patch networks.operator.openshift.io cluster --type='json' -p "$(sed -e "s/GF_IP/$$GF_IP/" examples/net-cluster-patch.json)"
 
