@@ -1,5 +1,7 @@
 # goflow2-kube-enricher
 
+[![Docker Repository on Quay](https://quay.io/repository/netobserv/goflow2-kube/status "Docker Repository on Quay")](https://quay.io/repository/netobserv/goflow2-kube)
+
 ## Description
 
 This enricher adds kubernetes data to the output of `goflow2` based, by default, on the source and destination addresses of each record. It then exports the data to Loki.
