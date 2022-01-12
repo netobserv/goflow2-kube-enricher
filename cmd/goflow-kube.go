@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"strconv"
@@ -19,6 +20,7 @@ import (
 	jsonFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/json"
 	nfFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/netflow"
 	pbFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/pb"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/health"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/reader"
 )
 
@@ -32,6 +34,7 @@ var (
 	kubeConfigPath = flag.String("kubeconfig", "", "absolute path to a kubeconfig file for advanced kube client configuration")
 	logLevel       = flag.String("loglevel", "info", "log level")
 	versionFlag    = flag.Bool("v", false, "print version")
+	healthPort     = flag.Int("healthport", 8080, "port for the /health service HTTP endpoint")
 	log            = logrus.WithField("module", app)
 	appVersion     = fmt.Sprintf("%s %s", app, version)
 )
@@ -54,6 +57,16 @@ func main() {
 	log.Infof("Starting %s at log level %s", appVersion, *logLevel)
 
 	cfg := loadMainConfig()
+
+	log.Info("Creating health HTTP endpoint...")
+	healthReporter := health.NewReporter(health.Starting)
+	httpHealth := health.NewHTTPReporter(healthReporter)
+	go func() {
+		// TODO: allow configuring TLS
+		err := http.ListenAndServe(fmt.Sprintf(":%d", *healthPort), httpHealth.Handler())
+		log.WithError(err).Info("interrupted HTTP health service")
+	}()
+
 	log.Info("Creating loki exporter...")
 	loki, err := export.NewLoki(&cfg.Loki)
 	if err != nil {
@@ -94,7 +107,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	r := reader.NewReader(in, log, cfg, clientset)
+	r := reader.NewReader(in, log, cfg, healthReporter, clientset)
 	log.Info("Starting reader...")
 	//TODO : implements context cancellation scenario
 	r.Start(context.TODO(), &loki)

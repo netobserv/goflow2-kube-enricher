@@ -12,6 +12,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/netobserv/goflow2-kube-enricher/pkg/health"
+
 	"github.com/golang/snappy"
 	"github.com/netobserv/loki-client-go/pkg/logproto"
 
@@ -90,7 +92,9 @@ func StartKubeEnricher(clientset kubernetes.Interface, clock func() time.Time) (
 			IPFields: map[string]string{
 				"SrcAddr": "",
 			},
-		}, clientset)
+		},
+		health.NewReporter(health.Starting),
+		clientset)
 	go r.Start(ctx, &loki)
 
 	conn, err := net.Dial("udp", fmt.Sprintf(":%d", listenPort))

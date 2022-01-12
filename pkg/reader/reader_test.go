@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/netobserv/goflow2-kube-enricher/pkg/health"
+
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 
@@ -42,6 +44,7 @@ func setupSimpleReader() (*Reader, *mock.InformersMock) {
 		log:       logrus.NewEntry(logrus.New()),
 		informers: informers,
 		config:    config.Default(),
+		health:    health.NewReporter(health.Starting),
 	}
 	return &r, informers
 }
