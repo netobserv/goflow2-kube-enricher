@@ -2,6 +2,7 @@
 package reader
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -46,20 +47,26 @@ func NewReader(format format.Format, log *logrus.Entry, cfg *config.Config, clie
 	}
 }
 
-func (r *Reader) Start(loki *export.Loki) {
+func (r *Reader) Start(ctx context.Context, loki *export.Loki) {
 	for {
-		record, err := r.format.Next()
-		if err != nil {
-			r.log.Error(err)
+		select {
+		case <-ctx.Done():
+			r.format.Shutdown()
 			return
-		}
-		if record == nil {
-			r.log.Error("nil record")
-			return
-		}
-		err = r.enrich(record, loki)
-		if err != nil {
-			r.log.Error(err)
+		default:
+			record, err := r.format.Next()
+			if err != nil {
+				r.log.Error(err)
+				return
+			}
+			if record == nil {
+				r.log.Error("nil record")
+				return
+			}
+			err = r.enrich(record, loki)
+			if err != nil {
+				r.log.Error(err)
+			}
 		}
 	}
 }

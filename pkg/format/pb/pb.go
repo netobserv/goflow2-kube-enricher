@@ -76,3 +76,7 @@ func renderMac(macValue uint64) string {
 	binary.BigEndian.PutUint64(mac, macValue)
 	return net.HardwareAddr(mac[2:]).String()
 }
+
+func (pbFormat *Format) Shutdown() {
+	//Can't shutdown pb formatter
+}

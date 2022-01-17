@@ -96,7 +96,8 @@ func main() {
 
 	r := reader.NewReader(in, log, cfg, clientset)
 	log.Info("Starting reader...")
-	r.Start(&loki)
+	//TODO : implements context cancellation scenario
+	r.Start(context.TODO(), &loki)
 }
 
 // loadKubeConfig fetches a given kubernetes configuration in the following order

@@ -30,3 +30,7 @@ func (j *Format) Next() (map[string]interface{}, error) {
 	err := j.scanner.Err()
 	return nil, err
 }
+
+func (j *Format) Shutdown() {
+	//Can't shutdown json formatter
+}
