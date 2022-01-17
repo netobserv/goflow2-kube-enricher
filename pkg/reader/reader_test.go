@@ -1,18 +1,44 @@
 package reader
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netobserv/goflow2-kube-enricher/pkg/config"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/export"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/internal/mock"
 )
+
+var spy = SpyDriver{shutdownCalled: false, nextCalled: false}
+
+type SpyDriver struct {
+	nextCalled     bool
+	shutdownCalled bool
+}
+
+type TestDriver struct{}
+
+func (gf *TestDriver) Next() (map[string]interface{}, error) {
+	records := map[string]interface{}{
+		"SrcAddr": "10.0.0.1",
+		"DstAddr": "10.0.0.2",
+	}
+	spy.nextCalled = true
+	return records, nil
+}
+
+func (gf *TestDriver) Shutdown() {
+	spy.shutdownCalled = true
+}
 
 func setupSimpleReader() (*Reader, *mock.InformersMock) {
 	informers := new(mock.InformersMock)
 	r := Reader{
+		format:    &TestDriver{},
 		log:       logrus.NewEntry(logrus.New()),
 		informers: informers,
 		config:    config.Default(),
@@ -135,4 +161,30 @@ func TestEnrichPodAndService(t *testing.T) {
 		"DstWorkload":     "test-service",
 		"DstWorkloadKind": "Service",
 	}, records)
+}
+
+func TestShutdown(t *testing.T) {
+	loki := export.NewEmptyLoki()
+	r, informers := setupSimpleReader()
+
+	informers.MockPod("test-pod1", "test-namespace", "10.0.0.1", "10.0.0.100")
+	informers.MockService("test-service", "test-namespace", "10.0.0.2")
+
+	ctx, cancel := context.WithCancel(context.TODO())
+	go r.Start(ctx, &loki)
+
+	//check if next has been called and ensure shutdown has not been called, then cancel
+	assert.Eventually(t, func() bool { return spy.nextCalled }, time.Second, time.Millisecond)
+	assert.Equal(t, false, spy.shutdownCalled)
+	cancel()
+
+	//check if shutdown has been called then reset spy
+	time.Sleep(time.Millisecond)
+	assert.Eventually(t, func() bool { return spy.shutdownCalled }, time.Second, time.Millisecond)
+	spy = SpyDriver{shutdownCalled: false, nextCalled: false}
+
+	//check that shutdown and next are not called anymore
+	time.Sleep(time.Millisecond)
+	assert.Eventually(t, func() bool { return !spy.shutdownCalled }, time.Second, time.Millisecond)
+	assert.Eventually(t, func() bool { return !spy.nextCalled }, time.Second, time.Millisecond)
 }

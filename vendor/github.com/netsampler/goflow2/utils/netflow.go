@@ -51,6 +51,8 @@ func (s *TemplateSystem) GetTemplate(version uint16, obsDomainId uint32, templat
 }
 
 type StateNetFlow struct {
+	stopper
+
 	Format        format.FormatInterface
 	Transport     transport.TransportInterface
 	Logger        Logger
@@ -59,6 +61,9 @@ type StateNetFlow struct {
 
 	samplinglock *sync.RWMutex
 	sampling     map[string]producer.SamplingRateSystem
+
+	Config       *producer.ProducerConfig
+	configMapped *producer.ProducerConfigMapped
 }
 
 func (s *StateNetFlow) DecodeFlow(msg interface{}) error {
@@ -102,20 +107,6 @@ func (s *StateNetFlow) DecodeFlow(msg interface{}) error {
 	msgDec, err := netflow.DecodeMessage(buf, templates)
 	if err != nil {
 		switch err.(type) {
-		case *netflow.ErrorVersion:
-			NetFlowErrors.With(
-				prometheus.Labels{
-					"router": key,
-					"error":  "error_version",
-				}).
-				Inc()
-		case *netflow.ErrorFlowId:
-			NetFlowErrors.With(
-				prometheus.Labels{
-					"router": key,
-					"error":  "error_flow_id",
-				}).
-				Inc()
 		case *netflow.ErrorTemplateNotFound:
 			NetFlowErrors.With(
 				prometheus.Labels{
@@ -215,7 +206,7 @@ func (s *StateNetFlow) DecodeFlow(msg interface{}) error {
 					Add(float64(len(fsConv.Records)))
 			}
 		}
-		flowMessageSet, err = producer.ProcessMessageNetFlow(msgDecConv, sampling)
+		flowMessageSet, err = producer.ProcessMessageNetFlowConfig(msgDecConv, sampling, s.configMapped)
 
 		for _, fmsg := range flowMessageSet {
 			fmsg.TimeReceived = ts
@@ -308,7 +299,7 @@ func (s *StateNetFlow) DecodeFlow(msg interface{}) error {
 					Add(float64(len(fsConv.Records)))
 			}
 		}
-		flowMessageSet, err = producer.ProcessMessageNetFlow(msgDecConv, sampling)
+		flowMessageSet, err = producer.ProcessMessageNetFlowConfig(msgDecConv, sampling, s.configMapped)
 
 		for _, fmsg := range flowMessageSet {
 			fmsg.TimeReceived = ts
@@ -365,7 +356,15 @@ func (s *StateNetFlow) InitTemplates() {
 	s.samplinglock = &sync.RWMutex{}
 }
 
+func (s *StateNetFlow) initConfig() {
+	s.configMapped = producer.NewProducerConfigMapped(s.Config)
+}
+
 func (s *StateNetFlow) FlowRoutine(workers int, addr string, port int, reuseport bool) error {
+	if err := s.start(); err != nil {
+		return err
+	}
 	s.InitTemplates()
-	return UDPRoutine("NetFlow", s.DecodeFlow, workers, addr, port, reuseport, s.Logger)
+	s.initConfig()
+	return UDPStoppableRoutine(s.stopCh, "NetFlow", s.DecodeFlow, workers, addr, port, reuseport, s.Logger)
 }

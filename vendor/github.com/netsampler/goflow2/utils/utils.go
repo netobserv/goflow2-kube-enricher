@@ -3,16 +3,29 @@ package utils
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	reuseport "github.com/libp2p/go-reuseport"
 	decoder "github.com/netsampler/goflow2/decoders"
 	"github.com/netsampler/goflow2/decoders/netflow"
 	flowmessage "github.com/netsampler/goflow2/pb"
+	"github.com/netsampler/goflow2/producer"
 	"github.com/prometheus/client_golang/prometheus"
+	"gopkg.in/yaml.v2"
 )
+
+type ProducerConfig *producer.ProducerConfig
+
+func LoadMapping(f io.Reader) (ProducerConfig, error) {
+	config := &producer.ProducerConfig{}
+	dec := yaml.NewDecoder(f)
+	err := dec.Decode(config)
+	return config, err
+}
 
 func GetServiceAddresses(srv string) (addrs []string, err error) {
 	_, srvs, err := net.LookupSRV("", "", srv)
@@ -87,6 +100,11 @@ func (cb *DefaultErrorCallback) Callback(name string, id int, start, end time.Ti
 }
 
 func UDPRoutine(name string, decodeFunc decoder.DecoderFunc, workers int, addr string, port int, sockReuse bool, logger Logger) error {
+	return UDPStoppableRoutine(make(chan struct{}), name, decodeFunc, workers, addr, port, sockReuse, logger)
+}
+
+// UDPStoppableRoutine runs a UDPRoutine that can be stopped by closing the stopCh passed as argument
+func UDPStoppableRoutine(stopCh <-chan struct{}, name string, decodeFunc decoder.DecoderFunc, workers int, addr string, port int, sockReuse bool, logger Logger) error {
 	ecb := DefaultErrorCallback{
 		Logger: logger,
 	}
@@ -134,41 +152,71 @@ func UDPRoutine(name string, decodeFunc decoder.DecoderFunc, workers int, addr s
 		localIP = ""
 	}
 
-	for {
-		size, pktAddr, _ := udpconn.ReadFromUDP(payload)
-		payloadCut := make([]byte, size)
-		copy(payloadCut, payload[0:size])
-
-		baseMessage := BaseMessage{
-			Src:     pktAddr.IP,
-			Port:    pktAddr.Port,
-			Payload: payloadCut,
-		}
-		processor.ProcessMessage(baseMessage)
-
-		MetricTrafficBytes.With(
-			prometheus.Labels{
-				"remote_ip":  pktAddr.IP.String(),
-				"local_ip":   localIP,
-				"local_port": strconv.Itoa(addrUDP.Port),
-				"type":       name,
-			}).
-			Add(float64(size))
-		MetricTrafficPackets.With(
-			prometheus.Labels{
-				"remote_ip":  pktAddr.IP.String(),
-				"local_ip":   localIP,
-				"local_port": strconv.Itoa(addrUDP.Port),
-				"type":       name,
-			}).
-			Inc()
-		MetricPacketSizeSum.With(
-			prometheus.Labels{
-				"remote_ip":  pktAddr.IP.String(),
-				"local_ip":   localIP,
-				"local_port": strconv.Itoa(addrUDP.Port),
-				"type":       name,
-			}).
-			Observe(float64(size))
+	type udpData struct {
+		size    int
+		pktAddr *net.UDPAddr
+		payload []byte
 	}
+
+	stopped := atomic.Value{}
+	stopped.Store(false)
+	udpDataCh := make(chan udpData)
+	go func() {
+		for {
+			u := udpData{}
+			u.size, u.pktAddr, _ = udpconn.ReadFromUDP(payload)
+			if stopped.Load() == false {
+				u.payload = make([]byte, u.size)
+				copy(u.payload, payload[0:u.size])
+				udpDataCh <- u
+			} else {
+				return
+			}
+		}
+	}()
+	for {
+		select {
+		case u := <-udpDataCh:
+			process(u.size, u.payload, u.pktAddr, processor, localIP, addrUDP, name)
+		case <-stopCh:
+			stopped.Store(true)
+			udpconn.Close()
+			close(udpDataCh)
+			return nil
+		}
+	}
+}
+
+func process(size int, payload []byte, pktAddr *net.UDPAddr, processor decoder.Processor, localIP string, addrUDP net.UDPAddr, name string) {
+	baseMessage := BaseMessage{
+		Src:     pktAddr.IP,
+		Port:    pktAddr.Port,
+		Payload: payload,
+	}
+	processor.ProcessMessage(baseMessage)
+
+	MetricTrafficBytes.With(
+		prometheus.Labels{
+			"remote_ip":  pktAddr.IP.String(),
+			"local_ip":   localIP,
+			"local_port": strconv.Itoa(addrUDP.Port),
+			"type":       name,
+		}).
+		Add(float64(size))
+	MetricTrafficPackets.With(
+		prometheus.Labels{
+			"remote_ip":  pktAddr.IP.String(),
+			"local_ip":   localIP,
+			"local_port": strconv.Itoa(addrUDP.Port),
+			"type":       name,
+		}).
+		Inc()
+	MetricPacketSizeSum.With(
+		prometheus.Labels{
+			"remote_ip":  pktAddr.IP.String(),
+			"local_ip":   localIP,
+			"local_port": strconv.Itoa(addrUDP.Port),
+			"type":       name,
+		}).
+		Observe(float64(size))
 }

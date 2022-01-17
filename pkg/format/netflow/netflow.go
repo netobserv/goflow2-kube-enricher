@@ -16,7 +16,8 @@ import (
 const channelSize = 5
 
 type Driver struct {
-	in chan map[string]interface{}
+	in  chan map[string]interface{}
+	sdn func()
 }
 
 // StartDriver starts a new go routine to handle netflow connections
@@ -39,6 +40,7 @@ func StartDriver(ctx context.Context, hostname string, port int, legacy bool) *D
 				Logger:    logrus.StandardLogger(),
 			}
 			err = sNFL.FlowRoutine(1, hostname, port, false)
+			gf.sdn = sNFL.Shutdown
 		} else {
 			sNF := &utils.StateNetFlow{
 				Format:    formatter,
@@ -46,6 +48,7 @@ func StartDriver(ctx context.Context, hostname string, port int, legacy bool) *D
 				Logger:    logrus.StandardLogger(),
 			}
 			err = sNF.FlowRoutine(1, hostname, port, false)
+			gf.sdn = sNF.Shutdown
 		}
 		log.Fatal(err)
 
@@ -57,4 +60,8 @@ func StartDriver(ctx context.Context, hostname string, port int, legacy bool) *D
 func (gf *Driver) Next() (map[string]interface{}, error) {
 	msg := <-gf.in
 	return msg, nil
+}
+
+func (gf *Driver) Shutdown() {
+	gf.sdn()
 }
