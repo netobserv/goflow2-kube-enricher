@@ -173,18 +173,18 @@ func TestShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.TODO())
 	go r.Start(ctx, &loki)
 
-	//wait 1ms, check if next has been called and cancel
-	time.Sleep(time.Millisecond)
-	assert.Equal(t, true, spy.nextCalled)
+	//check if next has been called and ensure shutdown has not been called, then cancel
+	assert.Eventually(t, func() bool { return spy.nextCalled }, time.Second, time.Millisecond)
+	assert.Equal(t, false, spy.shutdownCalled)
 	cancel()
 
-	//wait 1ms, check if shutdown has been called and reset spy
+	//check if shutdown has been called then reset spy
 	time.Sleep(time.Millisecond)
-	assert.Equal(t, true, spy.shutdownCalled)
+	assert.Eventually(t, func() bool { return spy.shutdownCalled }, time.Second, time.Millisecond)
 	spy = SpyDriver{shutdownCalled: false, nextCalled: false}
 
-	//wait 1ms, check that shutdown and next are not called anymore
+	//check that shutdown and next are not called anymore
 	time.Sleep(time.Millisecond)
-	assert.Equal(t, false, spy.shutdownCalled)
-	assert.Equal(t, false, spy.nextCalled)
+	assert.Eventually(t, func() bool { return !spy.shutdownCalled }, time.Second, time.Millisecond)
+	assert.Eventually(t, func() bool { return !spy.nextCalled }, time.Second, time.Millisecond)
 }
