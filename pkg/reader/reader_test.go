@@ -13,7 +13,7 @@ import (
 	"github.com/netobserv/goflow2-kube-enricher/pkg/internal/mock"
 )
 
-var spy SpyDriver = SpyDriver{shutdownCalled: false, nextCalled: false}
+var spy = SpyDriver{shutdownCalled: false, nextCalled: false}
 
 type SpyDriver struct {
 	nextCalled     bool
