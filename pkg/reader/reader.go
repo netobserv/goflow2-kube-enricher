@@ -25,7 +25,7 @@ type Reader struct {
 	format    format.Format
 }
 
-func NewReader(format format.Format, log *logrus.Entry, cfg *config.Config, clientset *kubernetes.Clientset) Reader {
+func NewReader(format format.Format, log *logrus.Entry, cfg *config.Config, clientset kubernetes.Interface) Reader {
 	informers := meta.NewInformers(clientset)
 
 	stopCh := make(chan struct{})
