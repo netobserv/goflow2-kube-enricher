@@ -9,7 +9,6 @@ import (
 	"os"
 	"time"
 
-	promconf "github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
@@ -21,33 +20,20 @@ const JSONFlagName = "json"
 const PBFlagName = "pb"
 
 type Config struct {
-	Listen      string            `yaml:"listen"`
-	StdinFormat string            `yaml:"stdinFormat"`
-	Loki        LokiConfig        `yaml:"loki"`
-	IPFields    map[string]string `yaml:"ipFields"`
-	PrintInput  bool              `yaml:"printInput"`
-	PrintOutput bool              `yaml:"printOutput"`
-}
-
-type LokiConfig struct {
-	URL            string                    `yaml:"url"`
-	TenantID       string                    `yaml:"tenantID"`
-	BatchWait      time.Duration             `yaml:"batchWait"`
-	BatchSize      int                       `yaml:"batchSize"`
-	Timeout        time.Duration             `yaml:"timeout"`
-	MinBackoff     time.Duration             `yaml:"minBackoff"`
-	MaxBackoff     time.Duration             `yaml:"maxBackoff"`
-	MaxRetries     int                       `yaml:"maxRetries"`
-	Labels         []string                  `yaml:"labels"`
-	StaticLabels   model.LabelSet            `yaml:"staticLabels"`
-	IgnoreList     []string                  `yaml:"ignoreList"`
-	ClientConfig   promconf.HTTPClientConfig `yaml:"clientConfig"`
-	TimestampLabel model.LabelName           `yaml:"timestampLabel"`
+	Listen         string          `yaml:"listen"`
+	StdinFormat    string          `yaml:"stdinFormat"`
+	Loki           *LokiConfig     `yaml:"loki"`
+	Kafka          *KafkaConfig    `yaml:"kafka"`
+	TimestampLabel model.LabelName `yaml:"timestampLabel"`
 	// TimestampScale provides the scale in time of the units from the timestamp
 	// E.g. UNIX time scale is '1s' (one second) while other clock sources might have
 	// scales of '1ms' (one millisecond) or just '1' (one nanosecond)
 	// Default value is '1s'
-	TimestampScale time.Duration `yaml:"timestampScale"`
+	TimestampScale time.Duration     `yaml:"timestampScale"`
+	IPFields       map[string]string `yaml:"ipFields"`
+	Enrich         bool              `yaml:"enrich"`
+	PrintInput     bool              `yaml:"printInput"`
+	PrintOutput    bool              `yaml:"printOutput"`
 }
 
 // Load loads the YAML configuration from the file path passed as argument
@@ -82,35 +68,20 @@ func Default() *Config {
 			"SrcAddr": "Src",
 			"DstAddr": "Dst",
 		},
-		Loki: LokiConfig{
-			URL:        "http://loki:3100/",
-			BatchWait:  1 * time.Second,
-			BatchSize:  100 * 1024,
-			Timeout:    10 * time.Second,
-			MinBackoff: 1 * time.Second,
-			MaxBackoff: 5 * time.Minute,
-			MaxRetries: 10,
-			StaticLabels: model.LabelSet{
-				"app": "goflow-kube",
-			},
-			TimestampLabel: "TimeReceived",
-			TimestampScale: time.Second,
-		},
+		Loki:           DefaultLoki(),
+		Kafka:          DefaultKafka(),
+		TimestampLabel: "TimeReceived",
+		TimestampScale: time.Second,
+		Enrich:         true,
 	}
 }
 
-func (c *LokiConfig) Validate() error {
+func (c *Config) Validate() error {
 	if c == nil {
 		return errors.New("you must provide a configuration")
 	}
 	if c.TimestampScale == 0 {
 		return errors.New("timestampUnit must be a valid Duration > 0 (e.g. 1m, 1s or 1ms)")
-	}
-	if c.URL == "" {
-		return errors.New("url can't be empty")
-	}
-	if c.BatchSize <= 0 {
-		return fmt.Errorf("invalid batchSize: %v. Required > 0", c.BatchSize)
 	}
 	return nil
 }
