@@ -14,6 +14,9 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/netobserv/goflow2-kube-enricher/pkg/config"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/consumer"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/consumer/kafka"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/enricher"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/export"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/format"
 	jsonFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/json"
@@ -54,13 +57,15 @@ func main() {
 	log.Infof("Starting %s at log level %s", appVersion, *logLevel)
 
 	cfg := loadMainConfig()
-	log.Info("Creating loki exporter...")
-	loki, err := export.NewLoki(&cfg.Loki)
+	clientset, err := kubernetes.NewForConfig(loadKubeConfig())
 	if err != nil {
-		log.WithError(err).Fatal("Can't create Loki exporter")
+		log.Fatal(err)
 	}
+	exporters := export.NewExporters(cfg)
+	e := enricher.NewEnricher(log, cfg, clientset, exporters)
 
 	var in format.Format
+	var c consumer.Consumer
 	if cfg.Listen == "" {
 		switch cfg.StdinFormat {
 		case config.JSONFlagName:
@@ -75,29 +80,30 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		hostname := listenAddrURL.Hostname()
+		port, err := strconv.ParseUint(listenAddrURL.Port(), 10, 64)
+		if err != nil {
+			log.Fatal("Failed reading listening port: ", err)
+		}
+		log.Infof("Start listening on %s", cfg.Listen)
 		if listenAddrURL.Scheme == netflowScheme || listenAddrURL.Scheme == legacyScheme {
-			hostname := listenAddrURL.Hostname()
-			port, err := strconv.ParseUint(listenAddrURL.Port(), 10, 64)
-			if err != nil {
-				log.Fatal("Failed reading listening port: ", err)
-			}
-			log.Infof("Start listening on %s", cfg.Listen)
 			ctx := context.Background()
 			in = nfFormat.StartDriver(ctx, hostname, int(port), listenAddrURL.Scheme == legacyScheme)
 		} else {
-			log.Fatal("Unknown listening protocol")
+			c = kafka.NewKafkaConsumer(hostname, port, log, cfg.Kafka, e)
 		}
 	}
 
-	clientset, err := kubernetes.NewForConfig(loadKubeConfig())
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	r := reader.NewReader(in, log, cfg, clientset)
-	log.Info("Starting reader...")
 	//TODO : implements context cancellation scenario
-	r.Start(context.TODO(), &loki)
+	if c != nil {
+		log.Info("Starting consumer...")
+		context, cancel := context.WithCancel(context.Background())
+		c.Start(context, cancel)
+	} else {
+		r := reader.NewReader(in, log, e)
+		log.Info("Starting reader...")
+		r.Start(context.TODO())
+	}
 }
 
 // loadKubeConfig fetches a given kubernetes configuration in the following order
@@ -155,6 +161,10 @@ func loadMainConfig() *config.Config {
 	} else {
 		log.Info("Using default configuration")
 		cfg = config.Default()
+	}
+
+	if err := cfg.Validate(); err != nil {
+		log.Fatal("Can't validate main config")
 	}
 	return cfg
 }

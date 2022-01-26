@@ -3,6 +3,7 @@ module github.com/netobserv/goflow2-kube-enricher
 go 1.15
 
 require (
+	github.com/Shopify/sarama v1.31.0
 	github.com/go-kit/kit v0.12.0
 	github.com/json-iterator/go v1.1.12
 	github.com/mitchellh/mapstructure v1.4.2

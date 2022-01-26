@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: goflow-kube-kafka-exporter
+  name: goflow-kube-kafka-exporter
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: goflow-kube-kafka-exporter
+  template:
+    metadata:
+      labels:
+        app: goflow-kube-kafka-exporter
+    spec:
+      volumes:
+        - name: config-vol
+          configMap:
+            name: goflow-kube-kafka-exporter-config
+      containers:
+        - command:
+            - /bin/sh
+            - -c
+            - /goflow-kube -loglevel "trace" -config /etc/goflow-kube-kafka-exporter/config.yaml
+          image: quay.io/netobserv/goflow2-kube:main
+          imagePullPolicy: IfNotPresent
+          name: goflow-kube-kafka-exporter
+          resources:
+            limits:
+              memory: 512Mi
+              cpu: "1"
+          volumeMounts:
+              - mountPath: /etc/goflow-kube-kafka-exporter
+                name: config-vol
+      serviceAccountName: goflow-kube-kafka-exporter
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: goflow-kube-kafka-exporter
+  namespace: default
+  labels:
+    app: goflow-kube-kafka-exporter
+spec:
+  ports:
+    - port: 2055
+      protocol: UDP
+  selector:
+    app: goflow-kube-kafka-exporter
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: goflow-kube-kafka-exporter-config
+data:
+  config.yaml: |
+    listen: netflow://:2055
+    kafka:
+      version: 3.0.0
+      export:
+        brokers:
+          - my-cluster-kafka-bootstrap.default.svc.cluster.local:9092
+    printOutput: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: goflow-kube-kafka-exporter
+  name: goflow-kube-kafka-exporter
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: goflow-kube-kafka-exporter
+  name: goflow-kube-kafka-exporter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: goflow-kube-kafka-exporter
+subjects:
+  - kind: ServiceAccount
+    name: goflow-kube-kafka-exporter
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app: goflow-kube-kafka-exporter
+  name: goflow-kube-kafka-exporter
+rules:
+  - apiGroups:
+      - ""
+      - "apps"
+    resources:
+      - pods
+      - replicasets
+      - services
+    verbs:
+      - list
+      - get
+      - watch
+
