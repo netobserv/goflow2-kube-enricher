@@ -9,20 +9,17 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"time"
 
 	"github.com/golang/snappy"
 	"github.com/netobserv/loki-client-go/pkg/logproto"
-
-	"github.com/netobserv/goflow2-kube-enricher/pkg/config"
-	"github.com/netobserv/goflow2-kube-enricher/pkg/export"
-	nfFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/netflow"
-	"github.com/netobserv/goflow2-kube-enricher/pkg/reader"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/vmware/go-ipfix/pkg/entities"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/netobserv/goflow2-kube-enricher/pkg/config"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/service"
 )
 
 const (
@@ -63,42 +60,42 @@ func StartKubeEnricher(clientset kubernetes.Interface, clock func() time.Time) (
 	log.WithField("port", listenPort).Info("Starting integration tests")
 	lokiFlows := make(chan map[string]interface{}, 256)
 	fakeLoki := httptest.NewServer(lokiHandler(lokiFlows))
-	loki, err := export.NewLoki(&config.LokiConfig{
-		URL:            fakeLoki.URL,
-		TenantID:       "foo",
-		BatchSize:      1024,
-		BatchWait:      time.Second,
-		Timeout:        time.Second,
-		TimestampScale: time.Second,
-	})
+
+	fe, err := service.NewFlowEnricher(&config.Config{
+		PrintInput:  true,
+		PrintOutput: true,
+		Listen:      fmt.Sprintf("netflow://0.0.0.0:%d", listenPort),
+		IPFields: map[string]string{
+			"SrcAddr": "",
+		},
+		Loki: config.LokiConfig{
+			URL:            fakeLoki.URL,
+			TenantID:       "foo",
+			BatchSize:      1024,
+			BatchWait:      time.Second,
+			Timeout:        time.Second,
+			TimestampScale: time.Second,
+		},
+	}, clientset)
 	if err != nil {
-		fakeLoki.Close()
-		return TestKubeEnricher{}, errors.Wrap(err, "creating loki exporter")
+		return TestKubeEnricher{}, errors.Wrap(err, "can't start flow enricher")
 	}
 
-	hostname, err := os.Hostname()
-	if err != nil {
-		fakeLoki.Close()
-		return TestKubeEnricher{}, errors.Wrap(err, "fetching hostname")
-	}
 	ctx, ctxCancel := context.WithCancel(context.Background())
-	in := nfFormat.StartDriver(ctx, hostname, listenPort, false)
-	r := reader.NewReader(in, log.WithFields(nil),
-		&config.Config{
-			PrintInput:  true,
-			PrintOutput: true,
-			IPFields: map[string]string{
-				"SrcAddr": "",
-			},
-		}, clientset)
-	go r.Start(ctx, &loki)
+	go fe.Start(ctx)
+	if err := waitUntilStarted(fe); err != nil {
+		ctxCancel()
+		fakeLoki.Close()
+		return TestKubeEnricher{}, err
+	}
 
 	conn, err := net.Dial("udp", fmt.Sprintf(":%d", listenPort))
 	if err != nil {
 		ctxCancel()
 		fakeLoki.Close()
-		return TestKubeEnricher{}, nil
+		return TestKubeEnricher{}, err
 	}
+
 	return TestKubeEnricher{
 		Port:      listenPort,
 		LokiFlows: lokiFlows,
@@ -224,6 +221,22 @@ func lokiHandler(flowsData chan<- map[string]interface{}) http.HandlerFunc {
 		}
 		rw.WriteHeader(http.StatusOK)
 	}
+}
+
+func waitUntilStarted(r *service.FlowEnricher) error {
+	startWait := time.Now()
+	for {
+		status := r.Status()
+		if status == service.Started {
+			break
+		}
+		if time.Since(startWait) > 5*time.Second {
+			return errors.New("timeout while waiting for reader to start")
+		}
+		log.WithField("status", status.String()).Info("waiting for reader to start")
+		time.Sleep(20 * time.Millisecond)
+	}
+	return nil
 }
 
 // freeUDPPort asks the kernel for a free open port that is ready to use.

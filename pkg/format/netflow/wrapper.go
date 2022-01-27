@@ -17,7 +17,7 @@ func NewWrapper(c chan map[string]interface{}) *TransportWrapper {
 	return &tw
 }
 
-func (w *TransportWrapper) Send(key, data []byte) error {
+func (w *TransportWrapper) Send(_, data []byte) error {
 	message := goflowpb.FlowMessage{}
 	err := proto.Unmarshal(data, &message)
 	if err != nil {

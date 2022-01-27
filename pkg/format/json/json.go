@@ -3,6 +3,7 @@ package json
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"io"
 )
@@ -33,4 +34,8 @@ func (j *Format) Next() (map[string]interface{}, error) {
 
 func (j *Format) Shutdown() {
 	//Can't shutdown json formatter
+}
+
+func (j *Format) Start(_ context.Context) {
+	//No need to start json formatter
 }

@@ -2,7 +2,6 @@
 package export
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -35,39 +34,27 @@ type Loki struct {
 	lokiConfig loki.Config
 	emitter    emitter
 	timeNow    func() time.Time
-	ready      bool
 }
 
 // NewLoki creates a Loki flow exporter from a given configuration
 func NewLoki(cfg *config.LokiConfig) (Loki, error) {
 	if err := cfg.Validate(); err != nil {
-		return NewEmptyLoki(), fmt.Errorf("the provided config is not valid: %w", err)
+		return Loki{}, fmt.Errorf("the provided config is not valid: %w", err)
 	}
 	lcfg, err := buildLokiConfig(cfg)
 	if err != nil {
-		return NewEmptyLoki(), err
+		return Loki{}, err
 	}
 	lokiClient, err := loki.NewWithLogger(lcfg, logadapter.NewLogger(log))
 	if err != nil {
-		return NewEmptyLoki(), err
+		return Loki{}, err
 	}
 	return Loki{
 		config:     *cfg,
 		lokiConfig: lcfg,
 		emitter:    lokiClient,
 		timeNow:    time.Now,
-		ready:      true,
 	}, nil
-}
-
-func NewEmptyLoki() Loki {
-	return Loki{
-		ready: false,
-	}
-}
-
-func (l *Loki) IsReady() bool {
-	return l.ready
 }
 
 func buildLokiConfig(c *config.LokiConfig) (loki.Config, error) {
@@ -93,10 +80,6 @@ func buildLokiConfig(c *config.LokiConfig) (loki.Config, error) {
 }
 
 func (l *Loki) ProcessRecord(record map[string]interface{}) error {
-	if !l.IsReady() {
-		return errors.New("Loki is not ready")
-	}
-
 	// Get timestamp from record (default: TimeFlowStart)
 	timestamp := l.extractTimestamp(record)
 

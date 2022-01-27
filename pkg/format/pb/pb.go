@@ -3,6 +3,7 @@ package pb
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -79,4 +80,8 @@ func renderMac(macValue uint64) string {
 
 func (pbFormat *Format) Shutdown() {
 	//Can't shutdown pb formatter
+}
+
+func (pbFormat *Format) Start(_ context.Context) {
+	//Don't need to start json formatter
 }

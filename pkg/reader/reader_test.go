@@ -5,11 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netobserv/goflow2-kube-enricher/pkg/config"
-	"github.com/netobserv/goflow2-kube-enricher/pkg/export"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/internal/mock"
 )
 
@@ -35,13 +33,20 @@ func (gf *TestDriver) Shutdown() {
 	spy.shutdownCalled = true
 }
 
+func (gf *TestDriver) Start(_ context.Context) {
+}
+
+type nullLoki struct{}
+
+func (e *nullLoki) ProcessRecord(_ map[string]interface{}) error { return nil }
+
 func setupSimpleReader() (*Reader, *mock.InformersMock) {
 	informers := new(mock.InformersMock)
 	r := Reader{
 		format:    &TestDriver{},
-		log:       logrus.NewEntry(logrus.New()),
 		informers: informers,
 		config:    config.Default(),
+		loki:      &nullLoki{},
 	}
 	return &r, informers
 }
@@ -58,9 +63,8 @@ func TestEnrichNoMatch(t *testing.T) {
 		"DstAddr": "10.0.0.2",
 	}
 
-	err := r.enrich(records, nil)
+	r.enrich(records)
 
-	assert.Nil(err)
 	assert.Equal(map[string]interface{}{
 		"SrcAddr":         "10.0.0.1",
 		"SrcPod":          "test-pod1",
@@ -84,9 +88,8 @@ func TestEnrichSinglePods(t *testing.T) {
 		"DstAddr": "10.0.0.2",
 	}
 
-	err := r.enrich(records, nil)
+	r.enrich(records)
 
-	assert.Nil(err)
 	assert.Equal(map[string]interface{}{
 		"SrcAddr":         "10.0.0.1",
 		"SrcPod":          "test-pod1",
@@ -115,9 +118,8 @@ func TestEnrichDeploymentPods(t *testing.T) {
 		"DstAddr": "10.0.0.2",
 	}
 
-	err := r.enrich(records, nil)
+	r.enrich(records)
 
-	assert.Nil(err)
 	assert.Equal(map[string]interface{}{
 		"SrcAddr":         "10.0.0.1",
 		"SrcPod":          "test-pod1",
@@ -146,9 +148,7 @@ func TestEnrichPodAndService(t *testing.T) {
 		"DstAddr": "10.0.0.2",
 	}
 
-	err := r.enrich(records, nil)
-
-	assert.Nil(err)
+	r.enrich(records)
 	assert.Equal(map[string]interface{}{
 		"SrcAddr":         "10.0.0.1",
 		"SrcPod":          "test-pod1",
@@ -164,14 +164,13 @@ func TestEnrichPodAndService(t *testing.T) {
 }
 
 func TestShutdown(t *testing.T) {
-	loki := export.NewEmptyLoki()
 	r, informers := setupSimpleReader()
 
 	informers.MockPod("test-pod1", "test-namespace", "10.0.0.1", "10.0.0.100")
 	informers.MockService("test-service", "test-namespace", "10.0.0.2")
 
 	ctx, cancel := context.WithCancel(context.TODO())
-	go r.Start(ctx, &loki)
+	go r.Start(ctx)
 
 	//check if next has been called and ensure shutdown has not been called, then cancel
 	assert.Eventually(t, func() bool { return spy.nextCalled }, time.Second, time.Millisecond)

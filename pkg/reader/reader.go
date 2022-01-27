@@ -10,7 +10,6 @@ import (
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 
 	"github.com/netobserv/goflow2-kube-enricher/pkg/config"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/export"
@@ -18,36 +17,35 @@ import (
 	"github.com/netobserv/goflow2-kube-enricher/pkg/meta"
 )
 
+var log = logrus.WithField("component", "reader.Reader")
+
+type lokiProcessor interface {
+	ProcessRecord(record map[string]interface{}) error
+}
+
 type Reader struct {
-	log       *logrus.Entry
 	informers meta.InformersInterface
 	config    *config.Config
 	format    format.Format
+	loki      lokiProcessor
 }
 
-func NewReader(format format.Format, log *logrus.Entry, cfg *config.Config, clientset kubernetes.Interface) Reader {
-	informers := meta.NewInformers(clientset)
-
-	stopCh := make(chan struct{})
-	defer close(stopCh)
-	if err := informers.Start(stopCh); err != nil {
-		log.WithError(err).Fatal("can't start informers")
+func NewReader(config *config.Config, format format.Format, informers meta.InformersInterface) (Reader, error) {
+	loki, err := export.NewLoki(&config.Loki)
+	if err != nil {
+		return Reader{}, nil
 	}
-	log.Info("waiting for informers to be synchronized")
-	informers.WaitForCacheSync(stopCh)
-	if logrus.IsLevelEnabled(logrus.DebugLevel) {
-		informers.DebugInfo(log.Writer())
-	}
-
 	return Reader{
-		log:       log,
-		informers: &informers,
-		config:    cfg,
 		format:    format,
-	}
+		informers: informers,
+		config:    config,
+		loki:      &loki,
+	}, err
 }
 
-func (r *Reader) Start(ctx context.Context, loki *export.Loki) {
+func (r *Reader) Start(ctx context.Context) {
+	// Start listening on input flows (in background)
+	go r.format.Start(ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -56,16 +54,16 @@ func (r *Reader) Start(ctx context.Context, loki *export.Loki) {
 		default:
 			record, err := r.format.Next()
 			if err != nil {
-				r.log.Error(err)
+				log.Error(err)
 				return
 			}
 			if record == nil {
-				r.log.Error("nil record")
+				log.Error("nil record")
 				return
 			}
-			err = r.enrich(record, loki)
-			if err != nil {
-				r.log.Error(err)
+			r.enrich(record)
+			if err := r.loki.ProcessRecord(record); err != nil {
+				log.Error(err)
 			}
 		}
 	}
@@ -76,7 +74,7 @@ var ownerNameFunc = func(owners interface{}, idx int) string {
 	return owner.Kind + "/" + owner.Name
 }
 
-func (r *Reader) enrich(record map[string]interface{}, loki *export.Loki) error {
+func (r *Reader) enrich(record map[string]interface{}) {
 	if r.config.PrintInput {
 		bs, _ := json.Marshal(record)
 		fmt.Println(string(bs))
@@ -84,12 +82,12 @@ func (r *Reader) enrich(record map[string]interface{}, loki *export.Loki) error 
 	for ipField, prefixOut := range r.config.IPFields {
 		val, ok := record[ipField]
 		if !ok {
-			r.log.Infof("Field %s not found in record", ipField)
+			log.Infof("Field %s not found in record", ipField)
 			continue
 		}
 		ip, ok := val.(string)
 		if !ok {
-			r.log.Warnf("String expected for field %s value %v", ipField, val)
+			log.Warnf("String expected for field %s value %v", ipField, val)
 			continue
 		}
 		if pod := r.informers.PodByIP(ip); pod != nil {
@@ -106,20 +104,13 @@ func (r *Reader) enrich(record map[string]interface{}, loki *export.Loki) error 
 		bs, _ := json.Marshal(record)
 		fmt.Println(string(bs))
 	}
-
-	var err error
-	if loki != nil {
-		err = loki.ProcessRecord(record)
-	}
-
-	return err
 }
 
 func (r *Reader) enrichService(ip string, record map[string]interface{}, prefixOut string) {
 	if svc := r.informers.ServiceByIP(ip); svc != nil {
 		fillWorkloadRecord(record, prefixOut, "Service", svc.Name, svc.Namespace)
 	} else {
-		r.log.Warnf("Failed to get Service [ip=%v]", ip)
+		log.Warnf("Failed to get Service [ip=%v]", ip)
 	}
 }
 
@@ -137,7 +128,7 @@ func (r *Reader) enrichPod(record map[string]interface{}, prefixOut string, pod 
 					ref = rs.OwnerReferences[0]
 				}
 			} else {
-				r.log.Warnf("Failed to get ReplicaSet [ns=%s,name=%s]", pod.Namespace, ref.Name)
+				log.Warnf("Failed to get ReplicaSet [ns=%s,name=%s]", pod.Namespace, ref.Name)
 			}
 		}
 		fillWorkloadRecord(record, prefixOut, ref.Kind, ref.Name, "")
@@ -156,7 +147,7 @@ func (r *Reader) checkTooMany(warnings []string, kind, ref string, items interfa
 		for i := 0; i < size; i++ {
 			names = append(names, nameFunc(items, i))
 		}
-		r.log.Tracef("%d %s found for %s, using first", size, kind, ref)
+		log.Tracef("%d %s found for %s, using first", size, kind, ref)
 		warn := fmt.Sprintf("Several %s found for %s: %s", kind, ref, strings.Join(names, ","))
 		warnings = append(warnings, warn)
 	}

@@ -6,7 +6,6 @@ import (
 	"log"
 
 	goflow2Format "github.com/netsampler/goflow2/format"
-
 	// this blank import triggers pb registration via init
 	_ "github.com/netsampler/goflow2/format/protobuf"
 	"github.com/netsampler/goflow2/utils"
@@ -16,45 +15,54 @@ import (
 const channelSize = 5
 
 type Driver struct {
-	in  chan map[string]interface{}
-	sdn func()
+	in       chan map[string]interface{}
+	legacy   bool
+	hostname string
+	port     int
+	sdn      func()
 }
 
-// StartDriver starts a new go routine to handle netflow connections
-func StartDriver(ctx context.Context, hostname string, port int, legacy bool) *Driver {
-	gf := Driver{}
-	gf.in = make(chan map[string]interface{}, channelSize)
+func NewDriver(hostname string, port int, legacy bool) *Driver {
+	return &Driver{
+		legacy:   legacy,
+		hostname: hostname,
+		port:     port,
+		in:       make(chan map[string]interface{}, channelSize),
+	}
+}
 
-	go func() {
-		transporter := NewWrapper(gf.in)
+// Start flow listening
+func (gf *Driver) Start(ctx context.Context) {
+	logrus.WithFields(logrus.Fields{
+		"component": "netflow.Driver",
+		"port":      gf.port,
+	}).Infof("Start listening for new flows")
 
-		formatter, err := goflow2Format.FindFormat(ctx, "pb")
-		if err != nil {
-			log.Fatal(err)
-		}
+	transporter := NewWrapper(gf.in)
 
-		if legacy {
-			sNFL := &utils.StateNFLegacy{
-				Format:    formatter,
-				Transport: transporter,
-				Logger:    logrus.StandardLogger(),
-			}
-			err = sNFL.FlowRoutine(1, hostname, port, false)
-			gf.sdn = sNFL.Shutdown
-		} else {
-			sNF := &utils.StateNetFlow{
-				Format:    formatter,
-				Transport: transporter,
-				Logger:    logrus.StandardLogger(),
-			}
-			err = sNF.FlowRoutine(1, hostname, port, false)
-			gf.sdn = sNF.Shutdown
-		}
+	formatter, err := goflow2Format.FindFormat(ctx, "pb")
+	if err != nil {
 		log.Fatal(err)
+	}
 
-	}()
-
-	return &gf
+	if gf.legacy {
+		sNFL := &utils.StateNFLegacy{
+			Format:    formatter,
+			Transport: transporter,
+			Logger:    logrus.StandardLogger(),
+		}
+		err = sNFL.FlowRoutine(1, gf.hostname, gf.port, false)
+		gf.sdn = sNFL.Shutdown
+	} else {
+		sNF := &utils.StateNetFlow{
+			Format:    formatter,
+			Transport: transporter,
+			Logger:    logrus.StandardLogger(),
+		}
+		err = sNF.FlowRoutine(1, gf.hostname, gf.port, false)
+		gf.sdn = sNF.Shutdown
+	}
+	log.Fatal(err)
 }
 
 func (gf *Driver) Next() (map[string]interface{}, error) {
