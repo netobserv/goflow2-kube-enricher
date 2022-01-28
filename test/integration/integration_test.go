@@ -13,7 +13,7 @@ import (
 	_ "github.com/vmware/go-ipfix/pkg/entities"
 )
 
-const timeout = 5 * time.Second
+const timeout = 5000 * time.Second
 
 func TestIntegration(t *testing.T) {
 	// GIVEN a running cluster

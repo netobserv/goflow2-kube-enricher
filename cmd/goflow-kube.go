@@ -12,7 +12,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/netobserv/goflow2-kube-enricher/pkg/config"
-	"github.com/netobserv/goflow2-kube-enricher/pkg/service"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/pipe"
 )
 
 var (
@@ -49,9 +49,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fe, err := service.NewFlowEnricher(cfg, clientset)
+	fe, err := pipe.NewPipeline(cfg, clientset)
 	if err != nil {
-		log.WithError(err).Fatal("can't start FlowEnricher")
+		log.WithError(err).Fatal("can't start Pipeline")
 	}
 	log.Info("Starting flow enricher...")
 	//TODO : implements context cancellation scenario

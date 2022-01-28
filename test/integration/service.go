@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/vmware/go-ipfix/pkg/registry"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -19,7 +20,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/netobserv/goflow2-kube-enricher/pkg/config"
-	"github.com/netobserv/goflow2-kube-enricher/pkg/service"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/pipe"
 )
 
 const (
@@ -35,7 +36,7 @@ var (
 )
 
 // TestKubeEnricher setup that provides an extra layer to submit test flows and check what
-// has been submitted to loki. To reproduce all the steps of a usual Kube Enricher instance,
+// has been submitted to loki. To reproduce all the steps of a usual Kube KubeEnricher instance,
 // this test instance also does all the encoding/decoding steps, like IPFIX for the input data
 // and Protocol Buffers for the output data.
 type TestKubeEnricher struct {
@@ -52,6 +53,7 @@ type TestKubeEnricher struct {
 // StartKubeEnricher given a kubernetes.Interface implementation (usually a fake.NewSimpleClientset)
 // and a mocked clock
 func StartKubeEnricher(clientset kubernetes.Interface, clock func() time.Time) (TestKubeEnricher, error) {
+	registry.LoadRegistry()
 	log.SetLevel(log.DebugLevel)
 	listenPort, err := freeUDPPort()
 	if err != nil {
@@ -61,10 +63,10 @@ func StartKubeEnricher(clientset kubernetes.Interface, clock func() time.Time) (
 	lokiFlows := make(chan map[string]interface{}, 256)
 	fakeLoki := httptest.NewServer(lokiHandler(lokiFlows))
 
-	fe, err := service.NewFlowEnricher(&config.Config{
+	fe, err := pipe.NewPipeline(&config.Config{
 		PrintInput:  true,
 		PrintOutput: true,
-		Listen:      fmt.Sprintf("netflow://0.0.0.0:%d", listenPort),
+		Listen:      fmt.Sprintf("0.0.0.0:%d", listenPort),
 		IPFields: map[string]string{
 			"SrcAddr": "",
 		},
@@ -175,7 +177,7 @@ func (ke *TestKubeEnricher) sendMessage(set entities.Set) error {
 	return err
 }
 
-// lokiHandler is a fake loki HTTP service that decodes the snappy/protobuf messages
+// lokiHandler is a fake loki HTTP pipe that decodes the snappy/protobuf messages
 // and forwards them for later assertions
 func lokiHandler(flowsData chan<- map[string]interface{}) http.HandlerFunc {
 	hlog := log.WithField("component", "LokiHandler")
@@ -223,14 +225,14 @@ func lokiHandler(flowsData chan<- map[string]interface{}) http.HandlerFunc {
 	}
 }
 
-func waitUntilStarted(r *service.FlowEnricher) error {
+func waitUntilStarted(r *pipe.Pipeline) error {
 	startWait := time.Now()
 	for {
 		status := r.Status()
-		if status == service.Started {
+		if status == pipe.Started {
 			break
 		}
-		if time.Since(startWait) > 5*time.Second {
+		if time.Since(startWait) > time.Second {
 			return errors.New("timeout while waiting for reader to start")
 		}
 		log.WithField("status", status.String()).Info("waiting for reader to start")
