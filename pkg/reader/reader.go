@@ -15,6 +15,7 @@ import (
 	"github.com/netobserv/goflow2-kube-enricher/pkg/config"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/export"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/format"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/health"
 	"github.com/netobserv/goflow2-kube-enricher/pkg/meta"
 )
 
@@ -23,9 +24,14 @@ type Reader struct {
 	informers meta.InformersInterface
 	config    *config.Config
 	format    format.Format
+	health    *health.Reporter
 }
 
-func NewReader(format format.Format, log *logrus.Entry, cfg *config.Config, clientset kubernetes.Interface) Reader {
+func NewReader(format format.Format,
+	log *logrus.Entry,
+	cfg *config.Config,
+	health *health.Reporter,
+	clientset kubernetes.Interface) Reader {
 	informers := meta.NewInformers(clientset)
 
 	stopCh := make(chan struct{})
@@ -44,10 +50,12 @@ func NewReader(format format.Format, log *logrus.Entry, cfg *config.Config, clie
 		informers: &informers,
 		config:    cfg,
 		format:    format,
+		health:    health,
 	}
 }
 
 func (r *Reader) Start(ctx context.Context, loki *export.Loki) {
+	r.health.Status = health.Ready
 	for {
 		select {
 		case <-ctx.Done():
@@ -56,15 +64,19 @@ func (r *Reader) Start(ctx context.Context, loki *export.Loki) {
 		default:
 			record, err := r.format.Next()
 			if err != nil {
+				r.health.Status = health.Error
 				r.log.Error(err)
 				return
 			}
 			if record == nil {
+				r.health.Status = health.Error
 				r.log.Error("nil record")
 				return
 			}
-			err = r.enrich(record, loki)
-			if err != nil {
+			if err := r.enrich(record, loki); err == nil {
+				r.health.RecordEnriched()
+			} else {
+				r.health.RecordDiscarded(err)
 				r.log.Error(err)
 			}
 		}
@@ -107,12 +119,11 @@ func (r *Reader) enrich(record map[string]interface{}, loki *export.Loki) error 
 		fmt.Println(string(bs))
 	}
 
-	var err error
 	if loki != nil {
-		err = loki.ProcessRecord(record)
+		return loki.ProcessRecord(record)
 	}
 
-	return err
+	return nil
 }
 
 func (r *Reader) enrichService(ip string, record map[string]interface{}, prefixOut string) {
