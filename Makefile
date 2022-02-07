@@ -43,7 +43,7 @@ verify: lint test
 .PHONY: build
 build:
 	@echo "### Building"
-	go build -mod vendor -o goflow-kube cmd/goflow-kube.go
+	go build -ldflags "-X main.version=${VERSION}" -mod vendor -o goflow-kube cmd/goflow-kube.go
 
 .PHONY: image
 image:
