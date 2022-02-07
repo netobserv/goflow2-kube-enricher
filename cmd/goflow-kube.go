@@ -24,10 +24,10 @@ import (
 
 const netflowScheme = "netflow"
 const legacyScheme = "nfl"
+const app = "goflow-kube"
 
 var (
 	version        = "unknown"
-	app            = "goflow-kube"
 	mainConfigPath = flag.String("config", "", "absolute path to the main configuration file")
 	kubeConfigPath = flag.String("kubeconfig", "", "absolute path to a kubeconfig file for advanced kube client configuration")
 	logLevel       = flag.String("loglevel", "info", "log level")
