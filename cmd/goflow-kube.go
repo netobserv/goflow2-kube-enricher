@@ -5,27 +5,18 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
-	"strconv"
 
+	"github.com/netobserv/goflow2-kube-enricher/pkg/config"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/export"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/health"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/service"
 	"github.com/sirupsen/logrus"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-
-	"github.com/netobserv/goflow2-kube-enricher/pkg/config"
-	"github.com/netobserv/goflow2-kube-enricher/pkg/export"
-	"github.com/netobserv/goflow2-kube-enricher/pkg/format"
-	jsonFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/json"
-	nfFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/netflow"
-	pbFormat "github.com/netobserv/goflow2-kube-enricher/pkg/format/pb"
-	"github.com/netobserv/goflow2-kube-enricher/pkg/health"
-	"github.com/netobserv/goflow2-kube-enricher/pkg/reader"
 )
 
-const netflowScheme = "netflow"
-const legacyScheme = "nfl"
 const app = "goflow-kube"
 
 var (
@@ -73,44 +64,16 @@ func main() {
 		log.WithError(err).Fatal("Can't create Loki exporter")
 	}
 
-	var in format.Format
-	if cfg.Listen == "" {
-		switch cfg.StdinFormat {
-		case config.JSONFlagName:
-			in = jsonFormat.NewScanner(os.Stdin)
-		case config.PBFlagName:
-			in = pbFormat.NewScanner(os.Stdin)
-		default:
-			log.Fatal("Unknown source format: ", cfg.StdinFormat)
-		}
-	} else {
-		listenAddrURL, err := url.Parse(cfg.Listen)
-		if err != nil {
-			log.Fatal(err)
-		}
-		if listenAddrURL.Scheme == netflowScheme || listenAddrURL.Scheme == legacyScheme {
-			hostname := listenAddrURL.Hostname()
-			port, err := strconv.ParseUint(listenAddrURL.Port(), 10, 64)
-			if err != nil {
-				log.Fatal("Failed reading listening port: ", err)
-			}
-			log.Infof("Start listening on %s", cfg.Listen)
-			ctx := context.Background()
-			in = nfFormat.StartDriver(ctx, hostname, int(port), listenAddrURL.Scheme == legacyScheme)
-		} else {
-			log.Fatal("Unknown listening protocol")
-		}
-	}
-
 	clientset, err := kubernetes.NewForConfig(loadKubeConfig())
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	r := reader.NewReader(in, log, cfg, healthReporter, clientset)
-	log.Info("Starting reader...")
-	//TODO : implements context cancellation scenario
-	r.Start(context.TODO(), &loki)
+	kubeEnricher := service.Build(cfg, clientset, &loki, healthReporter)
+	log.Info("Starting service...")
+	//TODO : implement context cancellation scenario
+	kubeEnricher.Start(context.TODO())
+	<-context.TODO().Done()
 }
 
 // loadKubeConfig fetches a given kubernetes configuration in the following order

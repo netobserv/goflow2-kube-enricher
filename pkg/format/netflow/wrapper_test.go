@@ -3,12 +3,13 @@ package netflow
 import (
 	"testing"
 
+	"github.com/netobserv/goflow2-kube-enricher/pkg/flow"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestWrapperSingleMessage(t *testing.T) {
 	assert := assert.New(t)
-	c := make(chan map[string]interface{}, 5)
+	c := make(chan flow.Record, 5)
 	wrapper := NewWrapper(c)
 	data := []byte{
 		0x08, 0x04, 0x10, 0xa6, 0x87, 0x91, 0x8b, 0x06, 0x20, 0x02, 0x32, 0x04,
@@ -34,7 +35,7 @@ func TestWrapperSingleMessage(t *testing.T) {
 
 func TestWrapperError(t *testing.T) {
 	assert := assert.New(t)
-	c := make(chan map[string]interface{}, 5)
+	c := make(chan flow.Record, 5)
 	wrapper := NewWrapper(c)
 	data := []byte{
 		0xff, 0xab, 0xcd, 0xef,

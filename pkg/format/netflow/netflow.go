@@ -5,6 +5,7 @@ import (
 	"context"
 	"log"
 
+	"github.com/netobserv/goflow2-kube-enricher/pkg/flow"
 	goflow2Format "github.com/netsampler/goflow2/format"
 
 	// this blank import triggers pb registration via init
@@ -15,18 +16,12 @@ import (
 
 const channelSize = 5
 
-type Driver struct {
-	in  chan map[string]interface{}
-	sdn func()
-}
-
 // StartDriver starts a new go routine to handle netflow connections
-func StartDriver(ctx context.Context, hostname string, port int, legacy bool) *Driver {
-	gf := Driver{}
-	gf.in = make(chan map[string]interface{}, channelSize)
+func StartDriver(ctx context.Context, hostname string, port int, legacy bool) <-chan flow.Record {
+	out := make(chan flow.Record, channelSize)
 
 	go func() {
-		transporter := NewWrapper(gf.in)
+		transporter := NewWrapper(out)
 
 		formatter, err := goflow2Format.FindFormat(ctx, "pb")
 		if err != nil {
@@ -40,7 +35,11 @@ func StartDriver(ctx context.Context, hostname string, port int, legacy bool) *D
 				Logger:    logrus.StandardLogger(),
 			}
 			err = sNFL.FlowRoutine(1, hostname, port, false)
-			gf.sdn = sNFL.Shutdown
+			go func() {
+				<-ctx.Done()
+				sNFL.Shutdown()
+				close(out)
+			}()
 		} else {
 			sNF := &utils.StateNetFlow{
 				Format:    formatter,
@@ -48,20 +47,15 @@ func StartDriver(ctx context.Context, hostname string, port int, legacy bool) *D
 				Logger:    logrus.StandardLogger(),
 			}
 			err = sNF.FlowRoutine(1, hostname, port, false)
-			gf.sdn = sNF.Shutdown
+			go func() {
+				<-ctx.Done()
+				sNF.Shutdown()
+				close(out)
+			}()
 		}
 		log.Fatal(err)
 
 	}()
 
-	return &gf
-}
-
-func (gf *Driver) Next() (map[string]interface{}, error) {
-	msg := <-gf.in
-	return msg, nil
-}
-
-func (gf *Driver) Shutdown() {
-	gf.sdn()
+	return out
 }

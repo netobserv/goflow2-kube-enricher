@@ -2,7 +2,6 @@
 package export
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -10,13 +9,14 @@ import (
 
 	logadapter "github.com/go-kit/kit/log/logrus"
 	jsoniter "github.com/json-iterator/go"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/config"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/flow"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/pipe"
 	"github.com/netobserv/loki-client-go/loki"
 	"github.com/netobserv/loki-client-go/pkg/backoff"
 	"github.com/netobserv/loki-client-go/pkg/urlutil"
 	"github.com/prometheus/common/model"
 	"github.com/sirupsen/logrus"
-
-	"github.com/netobserv/goflow2-kube-enricher/pkg/config"
 )
 
 var (
@@ -35,39 +35,27 @@ type Loki struct {
 	lokiConfig loki.Config
 	emitter    emitter
 	timeNow    func() time.Time
-	ready      bool
 }
 
 // NewLoki creates a Loki flow exporter from a given configuration
 func NewLoki(cfg *config.LokiConfig) (Loki, error) {
 	if err := cfg.Validate(); err != nil {
-		return NewEmptyLoki(), fmt.Errorf("the provided config is not valid: %w", err)
+		return Loki{}, fmt.Errorf("the provided config is not valid: %w", err)
 	}
 	lcfg, err := buildLokiConfig(cfg)
 	if err != nil {
-		return NewEmptyLoki(), err
+		return Loki{}, err
 	}
 	lokiClient, err := loki.NewWithLogger(lcfg, logadapter.NewLogger(log))
 	if err != nil {
-		return NewEmptyLoki(), err
+		return Loki{}, err
 	}
 	return Loki{
 		config:     *cfg,
 		lokiConfig: lcfg,
 		emitter:    lokiClient,
 		timeNow:    time.Now,
-		ready:      true,
 	}, nil
-}
-
-func NewEmptyLoki() Loki {
-	return Loki{
-		ready: false,
-	}
-}
-
-func (l *Loki) IsReady() bool {
-	return l.ready
 }
 
 func buildLokiConfig(c *config.LokiConfig) (loki.Config, error) {
@@ -92,11 +80,20 @@ func buildLokiConfig(c *config.LokiConfig) (loki.Config, error) {
 	return cfg, nil
 }
 
-func (l *Loki) ProcessRecord(record map[string]interface{}) error {
-	if !l.IsReady() {
-		return errors.New("Loki is not ready")
+// Submitter is an adaptor to work in the current asynchronous pipeline. It will be
+// replaced in the next changes, when the Loki component is splitted.
+func (l *Loki) Submitter() pipe.Submitter {
+	return func(record flow.Record) {
+		if err := l.ProcessRecord(record); err != nil {
+			log.WithError(err).WithField("record", record).
+				Warnf("can't process loki record. Ignoring")
+		}
 	}
+}
 
+// ProcessRecord adds some labels to the Loki record and submits it to Loki
+// TODO: split in two steps: add labels and submit
+func (l *Loki) ProcessRecord(record flow.Record) error {
 	// Get timestamp from record (default: TimeFlowStart)
 	timestamp := l.extractTimestamp(record)
 

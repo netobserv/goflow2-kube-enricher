@@ -3,34 +3,59 @@ package pb
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
 	"net"
 
 	ms "github.com/mitchellh/mapstructure"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/flow"
+	"github.com/netobserv/goflow2-kube-enricher/pkg/pipe"
 	goflowFormat "github.com/netsampler/goflow2/format/common"
 	goflowpb "github.com/netsampler/goflow2/pb"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 )
 
-type Format struct {
-	in io.Reader
+var plog = logrus.WithField("component", "pb.Scanner")
+
+// Ingester returns a pipe.Ingester instance that parses the protobuf messages from the
+// input stream and forwards them as flow.Record instances to an output channel
+func Ingester(in io.Reader) pipe.Ingester {
+	return func(ctx context.Context) <-chan flow.Record {
+		out := make(chan flow.Record, pipe.ChannelsBuffer)
+		go scanMessages(ctx, in, out)
+		return out
+	}
 }
 
-func NewScanner(in io.Reader) *Format {
-	input := Format{}
-	input.in = in
-	return &input
+func scanMessages(ctx context.Context, in io.Reader, out chan<- flow.Record) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			if record, err := next(in); err != nil {
+				if errors.Is(err, io.EOF) {
+					plog.Info("reached end of input. Stopping")
+					return
+				}
+				plog.WithError(err).Warn("can't read record")
+			} else {
+				out <- record
+			}
+		}
+	}
 }
 
-func (pbFormat *Format) Next() (map[string]interface{}, error) {
+func next(in io.Reader) (flow.Record, error) {
 	lenBuf := make([]byte, binary.MaxVarintLen64)
 
 	// Message is prefixed by its length, we read that length
-	_, err := io.ReadAtLeast(pbFormat.in, lenBuf, binary.MaxVarintLen64)
-	if err != nil && !errors.Is(err, io.EOF) {
+	_, err := io.ReadAtLeast(in, lenBuf, binary.MaxVarintLen64)
+	if err != nil {
 		return nil, err
 	}
 	len, lenSize := protowire.ConsumeVarint(lenBuf)
@@ -44,7 +69,7 @@ func (pbFormat *Format) Next() (map[string]interface{}, error) {
 		// If we read too much, we copy remaining bytes to the message buffer
 		copy(msgBuf[0:binary.MaxVarintLen64-lenSize], lenBuf[lenSize:binary.MaxVarintLen64])
 	}
-	_, err = io.ReadFull(pbFormat.in, msgBuf[binary.MaxVarintLen64-lenSize:])
+	_, err = io.ReadFull(in, msgBuf[binary.MaxVarintLen64-lenSize:])
 	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
@@ -75,8 +100,4 @@ func renderMac(macValue uint64) string {
 	mac := make([]byte, 8)
 	binary.BigEndian.PutUint64(mac, macValue)
 	return net.HardwareAddr(mac[2:]).String()
-}
-
-func (pbFormat *Format) Shutdown() {
-	//Can't shutdown pb formatter
 }
