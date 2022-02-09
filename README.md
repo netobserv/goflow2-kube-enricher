@@ -27,6 +27,8 @@ Generated fields are (with `[Prefix]` being by default `Src` or `Dst`):
 
 ## Build binary
 
+test
+
 ```bash
 make all # = make fmt build lint test
 ```
