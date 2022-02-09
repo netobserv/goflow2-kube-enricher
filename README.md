@@ -128,6 +128,8 @@ or simply:
 make cno-deploy
 ```
 
+test
+
 ### App label and logs
 You can use `app=goflow-kube` label to retreive any components deployed. 
 
