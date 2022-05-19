@@ -1,6 +1,6 @@
 # goflow2-kube-enricher
 
-** This tool is deprecated and won't receive any fix. Please use flowlogs-pipeline instead (https://github.com/netobserv/flowlogs-pipeline). This repository will be archived soon (read-only) **
+**This tool is deprecated and won't receive any fix. Please use flowlogs-pipeline instead (https://github.com/netobserv/flowlogs-pipeline). This repository will be archived soon (read-only)**
 
 [![Docker Repository on Quay](https://quay.io/repository/netobserv/goflow2-kube/status "Docker Repository on Quay")](https://quay.io/repository/netobserv/goflow2-kube)
 
