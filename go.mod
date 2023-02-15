@@ -10,7 +10,7 @@ require (
 	github.com/netobserv/loki-client-go v0.0.0-20211018150932-cb17208397a9
 	github.com/netsampler/goflow2 v1.0.5-0.20220106210010-20e8e567090c
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus/client_golang v1.11.0
+	github.com/prometheus/client_golang v1.11.1
 	github.com/prometheus/common v0.31.1
 	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.7.0
